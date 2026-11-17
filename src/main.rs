@@ -1,4 +1,4 @@
-mod system;
+mod interconnect;
 mod memory;
 mod cpu;
 mod cop0;
@@ -10,6 +10,6 @@ mod frontend;
 mod debugger;
 
 fn main() {
-    let _system = system::System::new();
+    let _system = interconnect::System::new();
     println!("skeleton boots");
 }
