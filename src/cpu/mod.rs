@@ -1,4 +1,4 @@
-use core::panic;
+use core::todo;
 
 use crate::interconnect::Interconnect;
 use instructions::Instruction;
@@ -113,7 +113,7 @@ impl Cpu {
                     0x24    => self.op_and(instruction),
                     0x25    => self.op_or(instruction),
                     0x2b    => self.op_sltu(instruction),
-                    _       => panic!("unknown_sub_function_{:06x}", sub_funct)
+                    _       => todo!("unknown_sub_function_{:06x}", sub_funct)
                 }
             },
             0b000001    => self.op_bxx(instruction),
@@ -136,7 +136,7 @@ impl Cpu {
             0b101000    => self.op_sb(instruction),
             0b101001    => self.op_sh(instruction),
             0b101011    => self.op_sw(instruction),
-            _           => panic!("unhandled_instruction_at_{:08x}", instruction.0),
+            _           => todo!("unhandled_instruction_at_{:08x}", instruction.0),
         }
     }
 
@@ -160,7 +160,7 @@ impl Cpu {
 
         let v = match s.checked_add(t) {
             Some(v) => v as u32,
-            None => panic!("ADD_overflow"),
+            None => todo!("ADD_overflow"),
         };
 
         self.set_reg(d, v);
@@ -225,7 +225,7 @@ impl Cpu {
 
         let v = match s.checked_add(i) {
             Some(v) => v as u32,
-            None => panic!("ADDI_overflow"),
+            None => todo!("ADDI_overflow"),
         };
 
         self.set_reg(t, v);
@@ -463,7 +463,7 @@ impl Cpu {
         match instruction.cop_opcode() {
             0b00100 => self.op_mtc0(instruction),
             0b00000 => self.op_mfc0(instruction),
-            _       => panic!("unhandled_cop0_instruction_{:08x}", instruction.0)
+            _       => todo!("unhandled_cop0_instruction_{:08x}", instruction.0)
         }
     }
 
@@ -476,14 +476,14 @@ impl Cpu {
         match cop_r {
             3 | 5 | 6 | 7 | 9 | 11 =>
                 if v != 0 {
-                    panic!("unhandled_write_to_cop0r{}", cop_r)
+                    todo!("unhandled_write_to_cop0r{}", cop_r)
                 },
             12 => self.sr = v,
             13 => 
                 if v != 0 {
-                    panic!("unhandled_write_to_CAUSE_register")
+                    todo!("unhandled_write_to_CAUSE_register")
                 },
-            _ => panic!("unhandled_cop0_register_{:08x}", cop_r),
+            _ => todo!("unhandled_cop0_register_{:08x}", cop_r),
         }
     }
 
@@ -494,8 +494,8 @@ impl Cpu {
         let v = match cop_r {
             12 => self.sr,
             13 =>
-                panic!("unhandled_read_from_CAUSE_register"),
-            _ => panic!("uhandled_read_from_cop0r{:08x}", cop_r),
+                todo!("unhandled_read_from_CAUSE_register"),
+            _ => todo!("uhandled_read_from_cop0r{:08x}", cop_r),
         };
 
         self.load = (cpu_r, v)

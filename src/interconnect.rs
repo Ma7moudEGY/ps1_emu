@@ -28,14 +28,14 @@ impl Interconnect {
             return self.ram.load_8(offset);
         }
 
-        panic!("unhandled_load_8_at_address_{:08x}", addr);
+        todo!("unhandled_load_8_at_address_{:08x}", addr);
     }
 
     pub fn load_32(&self, addr: u32) -> u32 {
         let addr = map::mask_region(addr);
 
         if addr % 4 != 0 {
-            panic!("unaligned_load_32_address_{:08x}", addr);
+            todo!("unaligned_load_32_address_{:08x}", addr);
         }
 
         if let Some(offset) = map::BIOS.contains(addr) {
@@ -46,7 +46,7 @@ impl Interconnect {
             return self.ram.load_32(offset);
         }
 
-        panic!("unhandled_load_32_at_address_{:08x}", addr);
+        todo!("unhandled_load_32_at_address_{:08x}", addr);
     }
 
     pub fn store_8(&mut self, addr: u32, val: u8) {
@@ -62,12 +62,12 @@ impl Interconnect {
             return;
         }
 
-        panic!("unhandled_store_8_address_{:08x}", addr);
+        todo!("unhandled_store_8_address_{:08x}", addr);
     }
 
     pub fn store_16(&mut self, addr: u32, val: u16) {
         if addr % 2 != 0 {
-            panic!("unaligned_store_16_address_{:08x}", addr);
+            todo!("unaligned_store_16_address_{:08x}", addr);
         }
 
         let abs_addr = map::mask_region(addr);
@@ -77,27 +77,27 @@ impl Interconnect {
             return;
         }
 
-        panic!("unhandled_store_16_address_{:08x}", addr);
+        todo!("unhandled_store_16_address_{:08x}", addr);
     }
 
     pub fn store_32(&mut self, addr: u32, val: u32) {
         let addr = map::mask_region(addr);
 
         if addr % 4 != 0 {
-            panic!("unaligned_store_32_address_{:08x}", addr);
+            todo!("unaligned_store_32_address_{:08x}", addr);
         }
 
         if let Some(offset) = map::SYS_CONTROL.contains(addr) {
             match offset {
                 0 => {
                     if val != 0x1f000000 {
-                        panic!("bad_expansion_1_base_address:_0x{:08x}", val);
+                        todo!("bad_expansion_1_base_address:_0x{:08x}", val);
                     }
                 }
 
                 4 => {
                     if val != 0x1f802000 {
-                        panic!("bad_expansion_2_base_address:_0x{:08x}", val);
+                        todo!("bad_expansion_2_base_address:_0x{:08x}", val);
                     }
                 }
 
@@ -131,7 +131,7 @@ impl Interconnect {
             return;
         }
 
-        panic!("unhandled_store_32_into_address_{:08x}", addr);
+        todo!("unhandled_store_32_into_address_{:08x}", addr);
     }
 }
 
