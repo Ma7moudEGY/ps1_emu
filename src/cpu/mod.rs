@@ -107,7 +107,9 @@ impl Cpu {
                 match sub_funct {
                     0x00    => self.op_sll(instruction),
                     0x08    => self.op_jr(instruction),
+                    0x20    => self.op_add(instruction),
                     0x21    => self.op_addu(instruction),
+                    0x24    => self.op_and(instruction),
                     0x25    => self.op_or(instruction),
                     0x2b    => self.op_sltu(instruction),
                     _       => panic!("unknown_sub_function_{:06x}", sub_funct)
@@ -142,12 +144,38 @@ impl Cpu {
         self.set_reg(d, v);
     }
 
+    fn op_add(&mut self, instruction: Instruction) {
+        let s = instruction.s();
+        let t = instruction.t();
+        let d = instruction.d();
+
+        let s = self.reg(s) as i32;
+        let t = self.reg(t) as i32;
+
+        let v = match s.checked_add(t) {
+            Some(v) => v as u32,
+            None => panic!("ADD_overflow"),
+        };
+
+        self.set_reg(d, v);
+    }
+
     fn op_addu(&mut self, instruction: Instruction) {
         let s = instruction.s();
         let t = instruction.t();
         let d = instruction.d();
 
         let v = self.reg(s).wrapping_add(self.reg(t));
+
+        self.set_reg(d, v);
+    }
+
+    fn op_and(&mut self, instruction: Instruction) {
+        let s = instruction.s();
+        let t = instruction.t();
+        let d = instruction.d();
+
+        let v = self.reg(s) & self.reg(t);
 
         self.set_reg(d, v);
     }
