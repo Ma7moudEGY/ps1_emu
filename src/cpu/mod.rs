@@ -107,6 +107,7 @@ impl Cpu {
                 match sub_funct {
                     0x00    => self.op_sll(instruction),
                     0x08    => self.op_jr(instruction),
+                    0x09    => self.op_jalr(instruction),
                     0x20    => self.op_add(instruction),
                     0x21    => self.op_addu(instruction),
                     0x24    => self.op_and(instruction),
@@ -115,10 +116,13 @@ impl Cpu {
                     _       => panic!("unknown_sub_function_{:06x}", sub_funct)
                 }
             },
+            0b000001    => self.op_bxx(instruction),
             0b000010    => self.op_j(instruction),
             0b000011    => self.op_jal(instruction),
             0b000100    => self.op_beq(instruction),
             0b000101    => self.op_bne(instruction),
+            0b000110    => self.op_blez(instruction),
+            0b000111    => self.op_bgtz(instruction),
             0b001000    => self.op_addi(instruction),
             0b001001    => self.op_addiu(instruction),
             0b001111    => self.op_lui(instruction),
@@ -127,6 +131,7 @@ impl Cpu {
             0b010000    => self.op_cop0(instruction),
             0b100000    => self.op_lb(instruction),
             0b100011    => self.op_lw(instruction),
+            0b100100    => self.op_lbu(instruction),
             0b101000    => self.op_sb(instruction),
             0b101001    => self.op_sh(instruction),
             0b101011    => self.op_sw(instruction),
@@ -368,6 +373,77 @@ impl Cpu {
         if self.reg(s) == self.reg(t) {
             self.branch(i);
         }
+    }
+
+    fn op_bxx(&mut self, instruction: Instruction) {
+        let s = instruction.s();
+        let i = instruction.imm_se();
+
+        let instruction = instruction.0;
+
+        let is_begz = (instruction >> 16) & 1;
+        let is_link = (instruction >> 20) & 1 != 0;
+
+        let v = self.reg(s) as i32;
+
+        let test = (v < 0) as u32;
+
+        let test = test ^ is_begz;
+
+        if test != 0 {
+            if is_link {
+                let ra = self.pc;
+
+                self.set_reg(RegisterIndex(31), ra);
+            }
+
+            self.branch(i);
+        }
+    }
+
+    fn op_bgtz(&mut self, instruction: Instruction) {
+        let s = instruction.s();
+        let i = instruction.imm_se();
+
+        let v = self.reg(s) as i32;
+
+        if v > 0 {
+            self.branch(i);
+        }
+    }
+
+    fn op_blez(&mut self, instruction: Instruction) {
+        let s = instruction.s();
+        let i = instruction.imm_se();
+
+        let v = self.reg(s) as i32;
+
+        if v <= 0 {
+            self.branch(i);
+        }
+    }
+
+    fn op_lbu(&mut self, instruction: Instruction) {
+        let s = instruction.s();
+        let t = instruction.t();
+        let i = instruction.imm_se();
+
+        let addr = self.reg(s).wrapping_add(i);
+
+        let v = self.load_8(addr);
+
+        self.load = (t, v as u32);
+    }
+
+    fn op_jalr(&mut self, instruction: Instruction) {
+        let s = instruction.s();
+        let d = instruction.d();
+
+        let ra = self.pc;
+
+        self.set_reg(d, ra);
+
+        self.pc = self.reg(s);
     }
 
     // COP INSTRUCTIONS
