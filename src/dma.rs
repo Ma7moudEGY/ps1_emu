@@ -1,7 +1,7 @@
-pub(crate) struct Dma;
+pub struct Dma;
 
 impl Dma {
-    pub(crate) fn new() -> Self {
+    pub fn new() -> Self {
         Dma
     }
 }

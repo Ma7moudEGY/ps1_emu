@@ -1,5 +1,5 @@
 mod bios;
 mod ram;
 
-pub(crate) use ram::Ram;
-pub(crate) use bios::Bios;
+pub use ram::Ram;
+pub use bios::Bios;

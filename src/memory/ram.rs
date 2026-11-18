@@ -1,7 +1,7 @@
-pub(crate) struct Ram;
+pub struct Ram;
 
 impl Ram {
-    pub(crate) fn new() -> Self {
+    pub fn new() -> Self {
         Ram
     }
 }

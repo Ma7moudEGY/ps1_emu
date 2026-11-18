@@ -10,6 +10,11 @@ mod frontend;
 mod debugger;
 
 fn main() {
-    let _system = interconnect::System::new();
-    println!("skeleton boots");
+    let bios = memory::Bios::new("bios/SCPH1001.BIN").expect("failed_to_load_bios");
+    let inter = interconnect::Interconnect::new(bios);
+    let mut cpu = cpu::Cpu::new(inter);
+
+    loop {
+        cpu.run_next_instruction();
+    }
 }

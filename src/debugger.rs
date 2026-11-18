@@ -1,7 +1,7 @@
-pub(crate) struct Debugger;
+pub struct Debugger;
 
 impl Debugger {
-    pub(crate) fn new() -> Self {
+    pub fn new() -> Self {
         Debugger
     }
 }

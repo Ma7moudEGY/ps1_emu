@@ -1,7 +1,7 @@
-pub(crate) struct Cop0;
+pub struct Cop0;
 
 impl Cop0 {
-    pub(crate) fn new() -> Self {
+    pub fn new() -> Self {
         Cop0
     }
 }

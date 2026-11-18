@@ -1,7 +1,7 @@
-pub(crate) struct InterruptControl;
+pub struct InterruptControl;
 
 impl InterruptControl {
-    pub(crate) fn new() -> Self {
+    pub fn new() -> Self {
         InterruptControl
     }
 }

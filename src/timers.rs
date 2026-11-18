@@ -1,7 +1,7 @@
-pub(crate) struct Timers;
+pub struct Timers;
 
 impl Timers {
-    pub(crate) fn new() -> Self {
+    pub fn new() -> Self {
         Timers
     }
 }
