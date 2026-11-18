@@ -94,7 +94,9 @@ impl Cpu {
                 let sub_funct = instruction.sub_function();
                 match sub_funct {
                     0x00    => self.op_sll(instruction),
+                    0x21    => self.op_addu(instruction),
                     0x25    => self.op_or(instruction),
+                    0x2b    => self.op_sltu(instruction),
                     _       => panic!("unknown_sub_function_{:06x}", sub_funct)
                 }
             },
@@ -121,10 +123,30 @@ impl Cpu {
         self.set_reg(d, v);
     }
 
-    fn op_or(&mut self, instruction: Instruction) {
-        let d = instruction.d();
+    fn op_addu(&mut self, instruction: Instruction) {
         let s = instruction.s();
         let t = instruction.t();
+        let d = instruction.d();
+
+        let v = self.reg(s).wrapping_add(self.reg(t));
+
+        self.set_reg(d, v);
+    }
+
+    fn op_sltu(&mut self, instruction: Instruction) {
+        let s = instruction.s();
+        let t = instruction.t();
+        let d = instruction.d();
+
+        let v = self.reg(s) < self.reg(t);
+
+        self.set_reg(d, v as u32);
+    }
+
+    fn op_or(&mut self, instruction: Instruction) {
+        let s = instruction.s();
+        let t = instruction.t();
+        let d = instruction.d();
 
         let v = self.reg(s) | self.reg(t);
 
@@ -142,9 +164,9 @@ impl Cpu {
     }
 
     fn op_addi(&mut self, instruction: Instruction) {
-        let i = instruction.imm_se() as i32;
-        let t = instruction.t();
         let s = instruction.s();
+        let t = instruction.t();
+        let i = instruction.imm_se() as i32;
 
         let s = self.reg(s) as i32;
 
@@ -157,8 +179,8 @@ impl Cpu {
     }
 
     fn op_lui(&mut self, instruction: Instruction) {
-        let i = instruction.imm();
         let t = instruction.t();
+        let i = instruction.imm();
 
         let v = i << 16;
 
@@ -166,9 +188,9 @@ impl Cpu {
     }
 
     fn op_ori(&mut self, instruction: Instruction) {
-        let i = instruction.imm();
-        let t = instruction.t();
         let s = instruction.s();
+        let t = instruction.t();
+        let i = instruction.imm();
 
         let v = self.reg(s) | i;
 
@@ -181,9 +203,9 @@ impl Cpu {
             return;
         }
 
-        let i = instruction.imm_se();
-        let t = instruction.t();
         let s = instruction.s();
+        let t = instruction.t();
+        let i = instruction.imm_se();
 
         let addr = self.reg(s).wrapping_add(i);
 
@@ -197,9 +219,9 @@ impl Cpu {
             println!("ignoring_store_while_cache_is_isolated");
             return;
         }
-        let i = instruction.imm_se();
-        let t = instruction.t();
         let s = instruction.s();
+        let t = instruction.t();
+        let i = instruction.imm_se();
 
         let addr = self.reg(s).wrapping_add(i);
         let v = self.reg(t);
@@ -214,9 +236,9 @@ impl Cpu {
     }
 
     fn op_bne(&mut self, instruction: Instruction) {
-        let i = instruction.imm_se();
-        let s = instruction.s();
         let t = instruction.t();
+        let s = instruction.s();
+        let i = instruction.imm_se();
 
         if self.reg(s) != self.reg(t) {
             self.branch(i);
