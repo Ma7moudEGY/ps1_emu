@@ -14,7 +14,9 @@ impl Interconnect {
     }
 
     pub fn load_32(&self, addr: u32) -> u32 {
-        if addr %4 != 0 {
+        let addr = map::mask_region(addr);
+
+        if addr % 4 != 0 {
             panic!("unaligned_load_32_address_{:08x}", addr);
         }
 
@@ -30,35 +32,43 @@ impl Interconnect {
     }
 
     pub fn store_32(&mut self, addr: u32, val: u32) {
-        if addr %4 != 0 {
+        let addr = map::mask_region(addr);
+
+        if addr % 4 != 0 {
             panic!("unaligned_store_32_address_{:08x}", addr);
         }
 
-        if let Some(offset) = map::MEM_CONTROL.contains(addr) {
+        if let Some(offset) = map::SYS_CONTROL.contains(addr) {
             match offset {
-                0 =>
+                0 => {
                     if val != 0x1f000000 {
                         panic!("bad_expansion_1_base_address:_0x{:08x}", val);
-                    },
+                    }
+                }
 
-                4 =>
+                4 => {
                     if val != 0x1f802000 {
                         panic!("bad_expansion_2_base_address:_0x{:08x}", val);
-                    },
+                    }
+                }
 
-                _ =>
-                    println!("unhandled_write_to_MEM_CONTROL_register"),
+                _ => println!("unhandled_write_to_SYS_CONTROL_register"),
             }
             return;
         }
 
         if let Some(x) = map::RAM_SIZE.contains(addr) {
-            println!("writing_{:08x}_to_ram", x);
+            println!("ignoring_write_to_RAM_SIZE_register");
             return;
         }
 
         if let Some(offset) = map::RAM.contains(addr) {
             self.ram.store_32(offset, val);
+            return;
+        }
+
+        if let Some(x) = map::SYS_CONTROL.contains(addr) {
+            println!("writing_{:08x}_to_sys_control", x);
             return;
         }
 
@@ -73,6 +83,18 @@ impl Interconnect {
 
 mod map {
     pub struct Range(u32, u32);
+    pub const REGION_MASK: [u32; 8] = [
+        0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff,
+        0x7fffffff,
+        0x1fffffff,
+        0xffffffff, 0xffffffff,
+    ];
+
+    pub fn mask_region(addr: u32) -> u32 {
+        let index = (addr >> 29) as usize;
+
+        addr & REGION_MASK[index]
+    }
 
     impl Range {
         pub fn contains(self, addr: u32) -> Option<u32> {
@@ -86,9 +108,13 @@ mod map {
         }
     }
 
-    pub const BIOS: Range = Range(0xbfc00000, 512 * 1024);
-    pub const MEM_CONTROL: Range = Range(0x1f801000, 36);
+    pub const RAM: Range = Range(0x00000000, 2 * 1024 * 1024);
+
+    pub const BIOS: Range = Range(0x1fc00000, 512 * 1024);
+
+    pub const SYS_CONTROL: Range = Range(0x1f801000, 36);
+
     pub const RAM_SIZE: Range = Range(0x1f801060, 4);
+
     pub const CACHE_CONTROL: Range = Range(0xfffe0130, 4);
-    pub const RAM: Range = Range(0xa0000000, 2 * 1024 * 1024);
 }
