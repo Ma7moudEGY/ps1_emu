@@ -347,6 +347,7 @@ impl Cpu {
     fn op_cop0(&mut self, instruction: Instruction) {
         match instruction.cop_opcode() {
             0b00100 => self.op_mtc0(instruction),
+            0b00000 => self.op_mfc0(instruction),
             _       => panic!("unhandled_cop0_instruction_{:08x}", instruction.0)
         }
     }
@@ -369,5 +370,19 @@ impl Cpu {
                 },
             _ => panic!("unhandled_cop0_register_{:08x}", cop_r),
         }
+    }
+
+    fn op_mfc0(&mut self, instruction: Instruction) {
+        let cpu_r = instruction.t();
+        let cop_r = instruction.d().0;
+
+        let v = match cop_r {
+            12 => self.sr,
+            13 =>
+                panic!("unhandled_read_from_CAUSE_register"),
+            _ => panic!("uhandled_read_from_cop0r{:08x}", cop_r),
+        };
+
+        self.load = (cpu_r, v)
     }
 }
