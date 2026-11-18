@@ -126,6 +126,11 @@ impl Interconnect {
             return;
         }
 
+        if let Some(offset) = map::IRQ_CONTROL.contains(addr) {
+            println!("IRQ_CONTROL:_{:x}_<-_{:08x}", offset, val);
+            return;
+        }
+
         panic!("unhandled_store_32_into_address_{:08x}", addr);
     }
 }
@@ -172,4 +177,6 @@ mod map {
     pub const EXPANSION_1: Range = Range(0x1f000000, 8 * 1024 * 1024);
 
     pub const EXPANSION_2: Range = Range(0x1f802000, 66);
+
+    pub const IRQ_CONTROL: Range = Range(0x1f801070, 8);
 }
