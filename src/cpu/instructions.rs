@@ -1,29 +1,32 @@
 #[derive(Clone, Copy)]
 pub struct Instruction(pub u32);
 
+use super::RegisterIndex;
+
 impl Instruction {
+
     pub fn function(&self) -> u32 {
         let Instruction(op) = self;
 
         op >> 26
     }
 
-    pub fn t(&self) -> u32 {
+    pub fn t(&self) -> RegisterIndex {
         let Instruction(op) = self;
 
-        (op >> 16) & 0x1f
+        RegisterIndex((op >> 16) & 0x1f)
     }
 
-    pub fn s(&self) -> u32 {
+    pub fn s(&self) -> RegisterIndex {
         let Instruction(op) = self;
 
-        (op >> 21) & 0x1f
+        RegisterIndex((op >> 21) & 0x1f)
     }
 
-    pub fn d(&self) -> u32 {
+    pub fn d(&self) -> RegisterIndex {
         let Instruction(op) = self;
 
-        (op >> 11) & 0x1f
+        RegisterIndex((op >> 11) & 0x1f)
     }
 
     pub fn sub_function(&self) -> u32 {
@@ -56,5 +59,11 @@ impl Instruction {
         let Instruction(op) = self;
 
         op & 0x3ffffff
+    }
+
+    pub fn cop_opcode(&self) -> u32 {
+        let Instruction(op) = self;
+
+        (op >> 21) & 0x1f
     }
 }

@@ -1,3 +1,5 @@
+use core::panic;
+
 use crate::interconnect::Interconnect;
 use instructions::Instruction;
 
@@ -6,11 +8,15 @@ mod exceptions;
 mod icache;
 mod instructions;
 
+#[derive(Clone, Copy)]
+pub struct RegisterIndex(u32);
+
 pub struct Cpu {
     pc: u32,
     regs: [u32; 32],
     inter: Interconnect,
     next_instruction: Instruction,
+    sr: u32,
 }
 
 impl Cpu {
@@ -23,15 +29,16 @@ impl Cpu {
             regs: regs,
             inter: inter,
             next_instruction: Instruction(0x0),
+            sr: 0,
         }
     }
 
-    fn reg(&self, index: u32) -> u32 {
-        self.regs[index as usize]
+    fn reg(&self, index: RegisterIndex) -> u32 {
+        self.regs[index.0 as usize]
     }
 
-    fn set_reg(&mut self, index: u32, val: u32) {
-        self.regs[index as usize] = val;
+    fn set_reg(&mut self, index: RegisterIndex, val: u32) {
+        self.regs[index.0 as usize] = val;
         self.regs[0] = 0;
     }
 
@@ -68,6 +75,7 @@ impl Cpu {
             0b001001    => self.op_addiu(instruction),
             0b001111    => self.op_lui(instruction),
             0b001101    => self.op_ori(instruction),
+            0b010000    => self.op_cop0(instruction),
             0b101011    => self.op_sw(instruction),
             _           => panic!("unhandled_instruction_at_{:08x}", instruction.0),
         }
@@ -123,6 +131,10 @@ impl Cpu {
     }
 
     fn op_sw(&mut self, instruction: Instruction) {
+        if self.sr & 0x10000 != 0 {
+            println!("ignoring_store_while_cache_is_isolated");
+            return;
+        }
         let i = instruction.imm_se();
         let t = instruction.t();
         let s = instruction.s();
@@ -137,5 +149,26 @@ impl Cpu {
         let i = instruction.imm_jump();
 
         self.pc = (self.pc &0xf0000000) | (i << 2);
+    }
+
+    // COP INSTRUCTIONS
+
+    fn op_cop0(&mut self, instruction: Instruction) {
+        match instruction.cop_opcode() {
+            0b00100 => self.op_mtc0(instruction),
+            _       => panic!("unhandled_cop0_instruction_{:08x}", instruction.0)
+        }
+    }
+
+    fn op_mtc0(&mut self, instruction: Instruction) {
+        let cpu_r = instruction.t();
+        let cop_r = instruction.d().0;
+
+        let v = self.reg(cpu_r);
+
+        match cop_r {
+            12 => self.sr = v,
+            n => panic!("unhandled_cop0_register_{:08x}", n),
+        }
     }
 }
