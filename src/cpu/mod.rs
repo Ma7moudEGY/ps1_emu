@@ -84,6 +84,10 @@ impl Cpu {
         self.inter.load_32(addr)
     }
 
+    fn store_16(&mut self, addr: u32, val: u16) {
+        self.inter.store_16(addr, val);
+    }
+
     fn store_32(&mut self, addr: u32, val: u32) {
         self.inter.store_32(addr, val);
     }
@@ -108,6 +112,7 @@ impl Cpu {
             0b001101    => self.op_ori(instruction),
             0b010000    => self.op_cop0(instruction),
             0b100011    => self.op_lw(instruction),
+            0b101001    => self.op_sh(instruction),
             0b101011    => self.op_sw(instruction),
             _           => panic!("unhandled_instruction_at_{:08x}", instruction.0),
         }
@@ -154,7 +159,7 @@ impl Cpu {
     }
 
     fn op_addiu(&mut self, instruction: Instruction) {
-        let i = instruction.imm();
+        let i = instruction.imm_se();
         let t = instruction.t();
         let s = instruction.s();
 
@@ -233,6 +238,22 @@ impl Cpu {
         let i = instruction.imm_jump();
 
         self.pc = (self.pc &0xf0000000) | (i << 2);
+    }
+
+    fn op_sh(&mut self, instruction: Instruction) {
+        if self.sr & 0x10000 != 0 {
+            println!("ignoring_store_while_cache_is_isolated");
+            return;
+        }
+
+        let s = instruction.s();
+        let t = instruction.t();
+        let i = instruction.imm_se();
+
+        let addr = self.reg(s).wrapping_add(i);
+        let v = self.reg(t);
+
+        self.store_16(addr, v as u16);
     }
 
     fn op_bne(&mut self, instruction: Instruction) {

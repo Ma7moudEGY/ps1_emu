@@ -31,6 +31,21 @@ impl Interconnect {
         panic!("unhandled_fetch32_at_address_{:08x}", addr);
     }
 
+    pub fn store_16(&mut self, addr: u32, val: u16) {
+        if addr % 2 != 0 {
+            panic!("unaligned_store_16_address_{:08x}", addr);
+        }
+
+        let abs_addr = map::mask_region(addr);
+
+        if let Some(offset) = map::SPU.contains(abs_addr) {
+            println!("unhandled_write_to_SPU_register_{:x}", offset);
+            return;
+        }
+
+        panic!("unhandled_store_16_address_{:08x}", addr);
+    }
+
     pub fn store_32(&mut self, addr: u32, val: u32) {
         let addr = map::mask_region(addr);
 
@@ -57,8 +72,8 @@ impl Interconnect {
             return;
         }
 
-        if let Some(x) = map::RAM_SIZE.contains(addr) {
-            println!("ignoring_write_to_RAM_SIZE_register");
+        if let Some(offset) = map::RAM_SIZE.contains(addr) {
+            println!("ignoring_write_to_RAM_SIZE_register_{:x}", offset);
             return;
         }
 
@@ -115,6 +130,8 @@ mod map {
     pub const SYS_CONTROL: Range = Range(0x1f801000, 36);
 
     pub const RAM_SIZE: Range = Range(0x1f801060, 4);
+
+    pub const SPU: Range = Range(0x1f801c00, 640);
 
     pub const CACHE_CONTROL: Range = Range(0xfffe0130, 4);
 }
