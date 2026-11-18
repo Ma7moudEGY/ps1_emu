@@ -106,10 +106,12 @@ impl Cpu {
                 let sub_funct = instruction.sub_function();
                 match sub_funct {
                     0x00    => self.op_sll(instruction),
+                    0x03    => self.op_sra(instruction),
                     0x08    => self.op_jr(instruction),
                     0x09    => self.op_jalr(instruction),
                     0x20    => self.op_add(instruction),
                     0x21    => self.op_addu(instruction),
+                    0x23    => self.op_subu(instruction),
                     0x24    => self.op_and(instruction),
                     0x25    => self.op_or(instruction),
                     0x2b    => self.op_sltu(instruction),
@@ -150,6 +152,16 @@ impl Cpu {
         self.set_reg(d, v);
     }
 
+    fn op_sra(&mut self, instruction: Instruction) {
+        let t = instruction.t();
+        let d = instruction.d();
+        let i = instruction.shift();
+
+        let v = (self.reg(t) as i32) >> i;
+
+        self.set_reg(d, v as u32);
+    }
+
     fn op_add(&mut self, instruction: Instruction) {
         let s = instruction.s();
         let t = instruction.t();
@@ -172,6 +184,16 @@ impl Cpu {
         let d = instruction.d();
 
         let v = self.reg(s).wrapping_add(self.reg(t));
+
+        self.set_reg(d, v);
+    }
+
+    fn op_subu(&mut self, instruction: Instruction) {
+        let s = instruction.s();
+        let t = instruction.t();
+        let d = instruction.d();
+
+        let v = self.reg(s).wrapping_sub(self.reg(t));
 
         self.set_reg(d, v);
     }
