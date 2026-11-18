@@ -14,6 +14,8 @@ pub struct RegisterIndex(u32);
 pub struct Cpu {
     pc: u32,
     regs: [u32; 32],
+    out_regs: [u32; 32],
+    load: (RegisterIndex, u32),
     inter: Interconnect,
     next_instruction: Instruction,
     sr: u32,
@@ -27,6 +29,8 @@ impl Cpu {
         Cpu {
             pc: 0xbfc00000,
             regs: regs,
+            out_regs: regs,
+            load: (RegisterIndex(0), 0),
             inter: inter,
             next_instruction: Instruction(0x0),
             sr: 0,
@@ -38,8 +42,8 @@ impl Cpu {
     }
 
     fn set_reg(&mut self, index: RegisterIndex, val: u32) {
-        self.regs[index.0 as usize] = val;
-        self.regs[0] = 0;
+        self.out_regs[index.0 as usize] = val;
+        self.out_regs[0] = 0;
     }
 
     pub fn run_next_instruction(&mut self) {
@@ -50,11 +54,34 @@ impl Cpu {
 
         self.pc = pc.wrapping_add(4);
 
+        let (reg, val) = self.load;
+        self.set_reg(reg, val);
+
+        self.load = (RegisterIndex(0), 0);
+
         self.decode_and_execute(instruction);
+
+        self.regs = self.out_regs;
+    }
+
+    fn branch(&mut self, offset: u32) {
+        let offset = offset << 2;
+
+        let mut pc = self.pc;
+
+        pc = pc.wrapping_add(offset);
+
+        pc = pc .wrapping_sub(4);
+
+        self.pc = pc;
     }
 
     fn load_32(&self, addr: u32) -> Instruction {
         Instruction(self.inter.load_32(addr))
+    }
+
+    fn read_word(&self, addr: u32) -> u32 {
+        self.inter.load_32(addr)
     }
 
     fn store_32(&mut self, addr: u32, val: u32) {
@@ -72,10 +99,13 @@ impl Cpu {
                 }
             },
             0b000010    => self.op_j(instruction),
+            0b000101    => self.op_bne(instruction),
+            0b001000    => self.op_addi(instruction),
             0b001001    => self.op_addiu(instruction),
             0b001111    => self.op_lui(instruction),
             0b001101    => self.op_ori(instruction),
             0b010000    => self.op_cop0(instruction),
+            0b100011    => self.op_lw(instruction),
             0b101011    => self.op_sw(instruction),
             _           => panic!("unhandled_instruction_at_{:08x}", instruction.0),
         }
@@ -111,6 +141,21 @@ impl Cpu {
         self.set_reg(t, v);
     }
 
+    fn op_addi(&mut self, instruction: Instruction) {
+        let i = instruction.imm_se() as i32;
+        let t = instruction.t();
+        let s = instruction.s();
+
+        let s = self.reg(s) as i32;
+
+        let v = match s.checked_add(i) {
+            Some(v) => v as u32,
+            None => panic!("ADDI_overflow"),
+        };
+
+        self.set_reg(t, v);
+    }
+
     fn op_lui(&mut self, instruction: Instruction) {
         let i = instruction.imm();
         let t = instruction.t();
@@ -128,6 +173,23 @@ impl Cpu {
         let v = self.reg(s) | i;
 
         self.set_reg(t, v);
+    }
+
+    fn op_lw(&mut self, instruction: Instruction) {
+        if self.sr & 0x10000 != 0 {
+            println!("ignoring_load_while_cache_is_isolated");
+            return;
+        }
+
+        let i = instruction.imm_se();
+        let t = instruction.t();
+        let s = instruction.s();
+
+        let addr = self.reg(s).wrapping_add(i);
+
+        let v = self.read_word(addr);
+
+        self.load = (t, v);
     }
 
     fn op_sw(&mut self, instruction: Instruction) {
@@ -149,6 +211,16 @@ impl Cpu {
         let i = instruction.imm_jump();
 
         self.pc = (self.pc &0xf0000000) | (i << 2);
+    }
+
+    fn op_bne(&mut self, instruction: Instruction) {
+        let i = instruction.imm_se();
+        let s = instruction.s();
+        let t = instruction.t();
+
+        if self.reg(s) != self.reg(t) {
+            self.branch(i);
+        }
     }
 
     // COP INSTRUCTIONS
