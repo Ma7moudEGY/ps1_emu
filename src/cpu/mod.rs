@@ -239,8 +239,16 @@ impl Cpu {
         let v = self.reg(cpu_r);
 
         match cop_r {
+            3 | 5 | 6 | 7 | 9 | 11 =>
+                if v != 0 {
+                    panic!("unhandled_write_to_cop0r{}", cop_r)
+                },
             12 => self.sr = v,
-            n => panic!("unhandled_cop0_register_{:08x}", n),
+            13 => 
+                if v != 0 {
+                    panic!("unhandled_write_to_CAUSE_register")
+                },
+            _ => panic!("unhandled_cop0_register_{:08x}", cop_r),
         }
     }
 }
