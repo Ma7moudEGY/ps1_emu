@@ -115,6 +115,7 @@ impl Cpu {
             },
             0b000010    => self.op_j(instruction),
             0b000011    => self.op_jal(instruction),
+            0b000100    => self.op_beq(instruction),
             0b000101    => self.op_bne(instruction),
             0b001000    => self.op_addi(instruction),
             0b001001    => self.op_addiu(instruction),
@@ -305,7 +306,7 @@ impl Cpu {
 
         let s = instruction.s();
         let t = instruction.t();
-        let i = instruction.imm();
+        let i = instruction.imm_se();
 
         let addr = self.reg(s).wrapping_add(i);
         let v = self.reg(t);
@@ -322,13 +323,23 @@ impl Cpu {
     fn op_lb(&mut self, instruction: Instruction) {
         let s = instruction.s();
         let t = instruction.t();
-        let i = instruction.imm();
+        let i = instruction.imm_se();
 
         let addr = self.reg(s).wrapping_add(i);
 
         let v = self.load_8(addr) as i8;
 
         self.load = (t, v as u32);
+    }
+
+    fn op_beq(&mut self, instruction: Instruction) {
+        let s = instruction.s();
+        let t = instruction.t();
+        let i = instruction.imm_se();
+
+        if self.reg(s) == self.reg(t) {
+            self.branch(i);
+        }
     }
 
     // COP INSTRUCTIONS
