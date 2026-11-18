@@ -13,6 +13,16 @@ impl Interconnect {
         }
     }
 
+    pub fn load_8(&self, addr: u32) -> u8 {
+        let abs_addr = map::mask_region(addr);
+
+        if let Some(offset) = map::BIOS.contains(abs_addr) {
+            return self.bios.load_8(offset);
+        }
+
+        panic!("unhandled_load_8_at_address_{:08x}", addr);
+    }
+
     pub fn load_32(&self, addr: u32) -> u32 {
         let addr = map::mask_region(addr);
 
@@ -28,7 +38,18 @@ impl Interconnect {
             return self.ram.load_32(offset);
         }
 
-        panic!("unhandled_fetch32_at_address_{:08x}", addr);
+        panic!("unhandled_load_32_at_address_{:08x}", addr);
+    }
+
+    pub fn store_8(&mut self, addr: u32, val: u8) {
+        let abs_addr = map::mask_region(addr);
+
+        if let Some(offset) = map::EXPANSION_2.contains(abs_addr) {
+            println!("unhandled_write_to_EXPANSION_2_register_{:x}", offset);
+            return;
+        }
+
+        panic!("unhandled_store_8_address_{:08x}", addr);
     }
 
     pub fn store_16(&mut self, addr: u32, val: u16) {
@@ -134,4 +155,6 @@ mod map {
     pub const SPU: Range = Range(0x1f801c00, 640);
 
     pub const CACHE_CONTROL: Range = Range(0xfffe0130, 4);
+
+    pub const EXPANSION_2: Range = Range(0x1f802000, 66);
 }

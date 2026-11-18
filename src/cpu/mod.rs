@@ -76,12 +76,20 @@ impl Cpu {
         self.pc = pc;
     }
 
+    fn load_8(&self, addr: u32) -> u8 {
+        self.inter.load_8(addr)
+    }
+
     fn load_32(&self, addr: u32) -> Instruction {
         Instruction(self.inter.load_32(addr))
     }
 
     fn read_word(&self, addr: u32) -> u32 {
         self.inter.load_32(addr)
+    }
+
+    fn store_8(&mut self, addr: u32, val: u8) {
+        self.inter.store_8(addr, val);
     }
 
     fn store_16(&mut self, addr: u32, val: u16) {
@@ -98,6 +106,7 @@ impl Cpu {
                 let sub_funct = instruction.sub_function();
                 match sub_funct {
                     0x00    => self.op_sll(instruction),
+                    0x08    => self.op_jr(instruction),
                     0x21    => self.op_addu(instruction),
                     0x25    => self.op_or(instruction),
                     0x2b    => self.op_sltu(instruction),
@@ -105,13 +114,17 @@ impl Cpu {
                 }
             },
             0b000010    => self.op_j(instruction),
+            0b000011    => self.op_jal(instruction),
             0b000101    => self.op_bne(instruction),
             0b001000    => self.op_addi(instruction),
             0b001001    => self.op_addiu(instruction),
             0b001111    => self.op_lui(instruction),
+            0b001100    => self.op_andi(instruction),
             0b001101    => self.op_ori(instruction),
             0b010000    => self.op_cop0(instruction),
+            0b100000    => self.op_lb(instruction),
             0b100011    => self.op_lw(instruction),
+            0b101000    => self.op_sb(instruction),
             0b101001    => self.op_sh(instruction),
             0b101011    => self.op_sw(instruction),
             _           => panic!("unhandled_instruction_at_{:08x}", instruction.0),
@@ -192,6 +205,16 @@ impl Cpu {
         self.set_reg(t, v);
     }
 
+    fn op_andi(&mut self, instruction: Instruction) {
+        let s = instruction.s();
+        let t = instruction.t();
+        let i = instruction.imm();
+
+        let v = self.reg(s) & i;
+
+        self.set_reg(t, v);
+    }
+
     fn op_ori(&mut self, instruction: Instruction) {
         let s = instruction.s();
         let t = instruction.t();
@@ -240,6 +263,14 @@ impl Cpu {
         self.pc = (self.pc &0xf0000000) | (i << 2);
     }
 
+    fn op_jal(&mut self, instruction: Instruction) {
+        let ra = self.pc;
+
+        self.set_reg(RegisterIndex(31), ra);
+
+        self.op_j(instruction);
+    }
+
     fn op_sh(&mut self, instruction: Instruction) {
         if self.sr & 0x10000 != 0 {
             println!("ignoring_store_while_cache_is_isolated");
@@ -257,13 +288,47 @@ impl Cpu {
     }
 
     fn op_bne(&mut self, instruction: Instruction) {
-        let t = instruction.t();
         let s = instruction.s();
+        let t = instruction.t();
         let i = instruction.imm_se();
 
         if self.reg(s) != self.reg(t) {
             self.branch(i);
         }
+    }
+
+    fn op_sb(&mut self, instruction: Instruction) {
+        if self.sr & 0x10000 != 0 {
+            println!("ignoring_store_while_cache_is_isolated");
+            return;
+        }
+
+        let s = instruction.s();
+        let t = instruction.t();
+        let i = instruction.imm();
+
+        let addr = self.reg(s).wrapping_add(i);
+        let v = self.reg(t);
+
+        self.store_8(addr, v as u8);
+    }
+
+    fn op_jr(&mut self, instruction: Instruction) {
+        let s = instruction.s();
+
+        self.pc = self.reg(s);
+    }
+
+    fn op_lb(&mut self, instruction: Instruction) {
+        let s = instruction.s();
+        let t = instruction.t();
+        let i = instruction.imm();
+
+        let addr = self.reg(s).wrapping_add(i);
+
+        let v = self.load_8(addr) as i8;
+
+        self.load = (t, v as u32);
     }
 
     // COP INSTRUCTIONS
