@@ -19,6 +19,8 @@ pub struct Cpu {
     inter: Interconnect,
     next_instruction: Instruction,
     sr: u32,
+    hi: u32,
+    lo: u32,
 }
 
 impl Cpu {
@@ -34,6 +36,8 @@ impl Cpu {
             inter: inter,
             next_instruction: Instruction(0x0),
             sr: 0,
+            hi: 0xdeadbeef,
+            lo: 0xdeadbeef, 
         }
     }
 
@@ -109,6 +113,7 @@ impl Cpu {
                     0x03    => self.op_sra(instruction),
                     0x08    => self.op_jr(instruction),
                     0x09    => self.op_jalr(instruction),
+                    0x1a    => self.op_div(instruction),
                     0x20    => self.op_add(instruction),
                     0x21    => self.op_addu(instruction),
                     0x23    => self.op_subu(instruction),
@@ -160,6 +165,30 @@ impl Cpu {
         let v = (self.reg(t) as i32) >> i;
 
         self.set_reg(d, v as u32);
+    }
+
+    fn op_div(&mut self, instruction: Instruction) {
+        let s = instruction.s();
+        let t = instruction.t();
+
+        let n = self.reg(s) as i32;
+        let d = self.reg(t) as i32;
+
+        if d == 0 {
+            self.hi = n as u32;
+
+            if n >= 0 {
+                self.lo = 0xffffffff;
+            } else {
+                self.lo = 1;
+            }
+        } else if n as u32 == 0x80000000 && d == -1 {
+            self.hi = 0;
+            self.lo = 0x80000000;
+        } else {
+            self.hi = (n % d) as u32;
+            self.lo = (n / d) as u32;
+        }
     }
 
     fn op_add(&mut self, instruction: Instruction) {
