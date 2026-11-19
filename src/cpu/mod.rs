@@ -1,12 +1,13 @@
-use core::todo;
-
-use crate::interconnect::Interconnect;
-use instructions::Instruction;
+use crate::{cpu::{decode::decode}, interconnect::Interconnect};
+use instruction::Instruction;
 
 mod decode;
 mod exceptions;
 mod icache;
-mod instructions;
+mod instruction;
+mod ops;
+
+type Op = fn(&mut Cpu, Instruction);
 
 #[derive(Clone, Copy)]
 pub struct RegisterIndex(u32);
@@ -34,18 +35,18 @@ impl Cpu {
             out_regs: regs,
             load: (RegisterIndex(0), 0),
             inter: inter,
-            next_instruction: Instruction(0x0),
+            next_instruction: decode(Instruction::new(0x0)),
             sr: 0,
             hi: 0xdeadbeef,
             lo: 0xdeadbeef, 
         }
     }
 
-    fn reg(&self, index: RegisterIndex) -> u32 {
+    pub(super) fn reg(&self, index: RegisterIndex) -> u32 {
         self.regs[index.0 as usize]
     }
 
-    fn set_reg(&mut self, index: RegisterIndex, val: u32) {
+    pub(super) fn set_reg(&mut self, index: RegisterIndex, val: u32) {
         self.out_regs[index.0 as usize] = val;
         self.out_regs[0] = 0;
     }
@@ -54,7 +55,7 @@ impl Cpu {
         let pc = self.pc;
 
         let instruction = self.next_instruction;
-        self.next_instruction = self.load_32(pc);
+        self.next_instruction = self.fetch_instruction(pc);
 
         self.pc = pc.wrapping_add(4);
 
@@ -63,7 +64,7 @@ impl Cpu {
 
         self.load = (RegisterIndex(0), 0);
 
-        self.decode_and_execute(instruction);
+        self.execute(instruction);
 
         self.regs = self.out_regs;
     }
@@ -84,8 +85,8 @@ impl Cpu {
         self.inter.load_8(addr)
     }
 
-    fn load_32(&self, addr: u32) -> Instruction {
-        Instruction(self.inter.load_32(addr))
+    fn fetch_instruction(&self, addr: u32) -> Instruction {
+        decode(Instruction::new(self.inter.load_32(addr)))
     }
 
     fn read_word(&self, addr: u32) -> u32 {
@@ -104,451 +105,7 @@ impl Cpu {
         self.inter.store_32(addr, val);
     }
 
-    fn decode_and_execute(&mut self, instruction: Instruction) {
-        match instruction.function() {
-            0b000000    =>  {
-                let sub_funct = instruction.sub_function();
-                match sub_funct {
-                    0x00    => self.op_sll(instruction),
-                    0x03    => self.op_sra(instruction),
-                    0x08    => self.op_jr(instruction),
-                    0x09    => self.op_jalr(instruction),
-                    0x1a    => self.op_div(instruction),
-                    0x20    => self.op_add(instruction),
-                    0x21    => self.op_addu(instruction),
-                    0x23    => self.op_subu(instruction),
-                    0x24    => self.op_and(instruction),
-                    0x25    => self.op_or(instruction),
-                    0x2b    => self.op_sltu(instruction),
-                    _       => todo!("unknown_sub_function_{:06x}", sub_funct)
-                }
-            },
-            0b000001    => self.op_bxx(instruction),
-            0b000010    => self.op_j(instruction),
-            0b000011    => self.op_jal(instruction),
-            0b000100    => self.op_beq(instruction),
-            0b000101    => self.op_bne(instruction),
-            0b000110    => self.op_blez(instruction),
-            0b000111    => self.op_bgtz(instruction),
-            0b001000    => self.op_addi(instruction),
-            0b001001    => self.op_addiu(instruction),
-            0b001010    => self.op_slti(instruction),
-            0b001111    => self.op_lui(instruction),
-            0b001100    => self.op_andi(instruction),
-            0b001101    => self.op_ori(instruction),
-            0b010000    => self.op_cop0(instruction),
-            0b100000    => self.op_lb(instruction),
-            0b100011    => self.op_lw(instruction),
-            0b100100    => self.op_lbu(instruction),
-            0b101000    => self.op_sb(instruction),
-            0b101001    => self.op_sh(instruction),
-            0b101011    => self.op_sw(instruction),
-            _           => todo!("unhandled_instruction_at_{:08x}", instruction.0),
-        }
-    }
-
-    fn op_sll(&mut self, instruction: Instruction) {
-        let i = instruction.shift();
-        let t = instruction.t();
-        let d = instruction.d();
-
-        let v = self.reg(t) << i;
-
-        self.set_reg(d, v);
-    }
-
-    fn op_sra(&mut self, instruction: Instruction) {
-        let t = instruction.t();
-        let d = instruction.d();
-        let i = instruction.shift();
-
-        let v = (self.reg(t) as i32) >> i;
-
-        self.set_reg(d, v as u32);
-    }
-
-    fn op_div(&mut self, instruction: Instruction) {
-        let s = instruction.s();
-        let t = instruction.t();
-
-        let n = self.reg(s) as i32;
-        let d = self.reg(t) as i32;
-
-        if d == 0 {
-            self.hi = n as u32;
-
-            if n >= 0 {
-                self.lo = 0xffffffff;
-            } else {
-                self.lo = 1;
-            }
-        } else if n as u32 == 0x80000000 && d == -1 {
-            self.hi = 0;
-            self.lo = 0x80000000;
-        } else {
-            self.hi = (n % d) as u32;
-            self.lo = (n / d) as u32;
-        }
-    }
-
-    fn op_add(&mut self, instruction: Instruction) {
-        let s = instruction.s();
-        let t = instruction.t();
-        let d = instruction.d();
-
-        let s = self.reg(s) as i32;
-        let t = self.reg(t) as i32;
-
-        let v = match s.checked_add(t) {
-            Some(v) => v as u32,
-            None => todo!("ADD_overflow"),
-        };
-
-        self.set_reg(d, v);
-    }
-
-    fn op_addu(&mut self, instruction: Instruction) {
-        let s = instruction.s();
-        let t = instruction.t();
-        let d = instruction.d();
-
-        let v = self.reg(s).wrapping_add(self.reg(t));
-
-        self.set_reg(d, v);
-    }
-
-    fn op_subu(&mut self, instruction: Instruction) {
-        let s = instruction.s();
-        let t = instruction.t();
-        let d = instruction.d();
-
-        let v = self.reg(s).wrapping_sub(self.reg(t));
-
-        self.set_reg(d, v);
-    }
-
-    fn op_and(&mut self, instruction: Instruction) {
-        let s = instruction.s();
-        let t = instruction.t();
-        let d = instruction.d();
-
-        let v = self.reg(s) & self.reg(t);
-
-        self.set_reg(d, v);
-    }
-
-    fn op_sltu(&mut self, instruction: Instruction) {
-        let s = instruction.s();
-        let t = instruction.t();
-        let d = instruction.d();
-
-        let v = self.reg(s) < self.reg(t);
-
-        self.set_reg(d, v as u32);
-    }
-
-    fn op_or(&mut self, instruction: Instruction) {
-        let s = instruction.s();
-        let t = instruction.t();
-        let d = instruction.d();
-
-        let v = self.reg(s) | self.reg(t);
-
-        self.set_reg(d, v);
-    }
-
-    fn op_addiu(&mut self, instruction: Instruction) {
-        let i = instruction.imm_se();
-        let t = instruction.t();
-        let s = instruction.s();
-
-        let v = self.reg(s).wrapping_add(i);
-
-        self.set_reg(t, v);
-    }
-
-    fn op_addi(&mut self, instruction: Instruction) {
-        let s = instruction.s();
-        let t = instruction.t();
-        let i = instruction.imm_se() as i32;
-
-        let s = self.reg(s) as i32;
-
-        let v = match s.checked_add(i) {
-            Some(v) => v as u32,
-            None => todo!("ADDI_overflow"),
-        };
-
-        self.set_reg(t, v);
-    }
-
-    fn op_lui(&mut self, instruction: Instruction) {
-        let t = instruction.t();
-        let i = instruction.imm();
-
-        let v = i << 16;
-
-        self.set_reg(t, v);
-    }
-
-    fn op_andi(&mut self, instruction: Instruction) {
-        let s = instruction.s();
-        let t = instruction.t();
-        let i = instruction.imm();
-
-        let v = self.reg(s) & i;
-
-        self.set_reg(t, v);
-    }
-
-    fn op_ori(&mut self, instruction: Instruction) {
-        let s = instruction.s();
-        let t = instruction.t();
-        let i = instruction.imm();
-
-        let v = self.reg(s) | i;
-
-        self.set_reg(t, v);
-    }
-
-    fn op_lw(&mut self, instruction: Instruction) {
-        if self.sr & 0x10000 != 0 {
-            println!("ignoring_load_while_cache_is_isolated");
-            return;
-        }
-
-        let s = instruction.s();
-        let t = instruction.t();
-        let i = instruction.imm_se();
-
-        let addr = self.reg(s).wrapping_add(i);
-
-        let v = self.read_word(addr);
-
-        self.load = (t, v);
-    }
-
-    fn op_sw(&mut self, instruction: Instruction) {
-        if self.sr & 0x10000 != 0 {
-            println!("ignoring_store_while_cache_is_isolated");
-            return;
-        }
-        let s = instruction.s();
-        let t = instruction.t();
-        let i = instruction.imm_se();
-
-        let addr = self.reg(s).wrapping_add(i);
-        let v = self.reg(t);
-
-        self.store_32(addr, v);
-    }
-
-    fn op_j(&mut self, instruction: Instruction) {
-        let i = instruction.imm_jump();
-
-        self.pc = (self.pc &0xf0000000) | (i << 2);
-    }
-
-    fn op_jal(&mut self, instruction: Instruction) {
-        let ra = self.pc;
-
-        self.set_reg(RegisterIndex(31), ra);
-
-        self.op_j(instruction);
-    }
-
-    fn op_sh(&mut self, instruction: Instruction) {
-        if self.sr & 0x10000 != 0 {
-            println!("ignoring_store_while_cache_is_isolated");
-            return;
-        }
-
-        let s = instruction.s();
-        let t = instruction.t();
-        let i = instruction.imm_se();
-
-        let addr = self.reg(s).wrapping_add(i);
-        let v = self.reg(t);
-
-        self.store_16(addr, v as u16);
-    }
-
-    fn op_bne(&mut self, instruction: Instruction) {
-        let s = instruction.s();
-        let t = instruction.t();
-        let i = instruction.imm_se();
-
-        if self.reg(s) != self.reg(t) {
-            self.branch(i);
-        }
-    }
-
-    fn op_sb(&mut self, instruction: Instruction) {
-        if self.sr & 0x10000 != 0 {
-            println!("ignoring_store_while_cache_is_isolated");
-            return;
-        }
-
-        let s = instruction.s();
-        let t = instruction.t();
-        let i = instruction.imm_se();
-
-        let addr = self.reg(s).wrapping_add(i);
-        let v = self.reg(t);
-
-        self.store_8(addr, v as u8);
-    }
-
-    fn op_jr(&mut self, instruction: Instruction) {
-        let s = instruction.s();
-
-        self.pc = self.reg(s);
-    }
-
-    fn op_lb(&mut self, instruction: Instruction) {
-        let s = instruction.s();
-        let t = instruction.t();
-        let i = instruction.imm_se();
-
-        let addr = self.reg(s).wrapping_add(i);
-
-        let v = self.load_8(addr) as i8;
-
-        self.load = (t, v as u32);
-    }
-
-    fn op_beq(&mut self, instruction: Instruction) {
-        let s = instruction.s();
-        let t = instruction.t();
-        let i = instruction.imm_se();
-
-        if self.reg(s) == self.reg(t) {
-            self.branch(i);
-        }
-    }
-
-    fn op_bxx(&mut self, instruction: Instruction) {
-        let s = instruction.s();
-        let i = instruction.imm_se();
-
-        let instruction = instruction.0;
-
-        let is_begz = (instruction >> 16) & 1;
-        let is_link = (instruction >> 20) & 1 != 0;
-
-        let v = self.reg(s) as i32;
-
-        let test = (v < 0) as u32;
-
-        let test = test ^ is_begz;
-
-        if test != 0 {
-            if is_link {
-                let ra = self.pc;
-
-                self.set_reg(RegisterIndex(31), ra);
-            }
-
-            self.branch(i);
-        }
-    }
-
-    fn op_bgtz(&mut self, instruction: Instruction) {
-        let s = instruction.s();
-        let i = instruction.imm_se();
-
-        let v = self.reg(s) as i32;
-
-        if v > 0 {
-            self.branch(i);
-        }
-    }
-
-    fn op_blez(&mut self, instruction: Instruction) {
-        let s = instruction.s();
-        let i = instruction.imm_se();
-
-        let v = self.reg(s) as i32;
-
-        if v <= 0 {
-            self.branch(i);
-        }
-    }
-
-    fn op_lbu(&mut self, instruction: Instruction) {
-        let s = instruction.s();
-        let t = instruction.t();
-        let i = instruction.imm_se();
-
-        let addr = self.reg(s).wrapping_add(i);
-
-        let v = self.load_8(addr);
-
-        self.load = (t, v as u32);
-    }
-
-    fn op_jalr(&mut self, instruction: Instruction) {
-        let s = instruction.s();
-        let d = instruction.d();
-
-        let ra = self.pc;
-
-        self.set_reg(d, ra);
-
-        self.pc = self.reg(s);
-    }
-
-    fn op_slti(&mut self, instruction: Instruction) {
-        let s = instruction.s();
-        let t = instruction.t();
-        let i = instruction.imm_se() as i32;
-
-        let v = (self.reg(s) as i32) < i;
-
-        self.set_reg(t, v as u32);
-    }
-
-    // COP INSTRUCTIONS
-
-    fn op_cop0(&mut self, instruction: Instruction) {
-        match instruction.cop_opcode() {
-            0b00100 => self.op_mtc0(instruction),
-            0b00000 => self.op_mfc0(instruction),
-            _       => todo!("unhandled_cop0_instruction_{:08x}", instruction.0)
-        }
-    }
-
-    fn op_mtc0(&mut self, instruction: Instruction) {
-        let cpu_r = instruction.t();
-        let cop_r = instruction.d().0;
-
-        let v = self.reg(cpu_r);
-
-        match cop_r {
-            3 | 5 | 6 | 7 | 9 | 11 =>
-                if v != 0 {
-                    todo!("unhandled_write_to_cop0r{}", cop_r)
-                },
-            12 => self.sr = v,
-            13 => 
-                if v != 0 {
-                    todo!("unhandled_write_to_CAUSE_register")
-                },
-            _ => todo!("unhandled_cop0_register_{:08x}", cop_r),
-        }
-    }
-
-    fn op_mfc0(&mut self, instruction: Instruction) {
-        let cpu_r = instruction.t();
-        let cop_r = instruction.d().0;
-
-        let v = match cop_r {
-            12 => self.sr,
-            13 =>
-                todo!("unhandled_read_from_CAUSE_register"),
-            _ => todo!("uhandled_read_from_cop0r{:08x}", cop_r),
-        };
-
-        self.load = (cpu_r, v)
+    fn execute(&mut self, instruction: Instruction) {
+        (instruction.execute)(self, instruction);
     }
 }
