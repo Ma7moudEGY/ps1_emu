@@ -29,6 +29,16 @@ impl Ram {
         self.data[offset as usize] = val;
     }
 
+    pub fn store_16(&mut self, offset: u32, val: u16) {
+        let offset = offset as usize;
+
+        let b0 = val as u8;
+        let b1 = (val >> 8) as u8;
+
+        self.data[offset + 0] = b0;
+        self.data[offset + 1] = b1;
+    }
+
     pub fn store_32(&mut self, offset: u32, val: u32) {
         let offset = offset as usize;
 

@@ -45,9 +45,14 @@ impl Interconnect {
         if let Some(offset) = map::RAM.contains(addr) {
             return self.ram.load_32(offset);
         }
-        
+
         if let Some(offset) = map::IRQ_CONTROL.contains(addr) {
             println!("IRQ_CONTROL_read_{:x}", offset);
+            return 0;
+        }
+
+        if let Some(_) = map::DMA.contains(addr) {
+            println!("DMA_read_{:08x}", addr);
             return 0;
         }
 
@@ -85,6 +90,10 @@ impl Interconnect {
         if let Some(offset) = map::TIMERS.contains(abs_addr) {
             println!("uhandled_write_to_timer_register_{:x}", offset);
             return;
+        }
+
+        if let Some(offset) = map::RAM.contains(abs_addr) {
+            return self.ram.store_16(offset, val);
         }
 
         todo!("unhandled_store_16_address_{:08x}", addr);
@@ -141,6 +150,11 @@ impl Interconnect {
             return;
         }
 
+        if let Some(_) = map::DMA.contains(addr) {
+            println!("DMA_write:_{:08x}_{:08x}", addr, val);
+            return;
+        }
+
         todo!("unhandled_store_32_into_address_{:08x}", addr);
     }
 }
@@ -148,10 +162,8 @@ impl Interconnect {
 mod map {
     pub struct Range(u32, u32);
     pub const REGION_MASK: [u32; 8] = [
-        0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff,
-        0x7fffffff,
-        0x1fffffff,
-        0xffffffff, 0xffffffff,
+        0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff, 0x7fffffff, 0x1fffffff, 0xffffffff,
+        0xffffffff,
     ];
 
     pub fn mask_region(addr: u32) -> u32 {
@@ -191,4 +203,6 @@ mod map {
     pub const IRQ_CONTROL: Range = Range(0x1f801070, 8);
 
     pub const TIMERS: Range = Range(0x1f801100, 0x30);
+
+    pub const DMA: Range = Range(0x1f801080, 0x80);
 }
