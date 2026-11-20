@@ -31,6 +31,21 @@ impl Interconnect {
         todo!("unhandled_load_8_at_address_{:08x}", addr);
     }
 
+    pub fn load_16(&self, addr: u32) -> u16 {
+        let abs_addr = map::mask_region(addr);
+
+        if let Some(_) = map::SPU.contains(abs_addr) {
+            println!("unhandled_read_from_SPU_register_{:08x}", abs_addr);
+            return 0;
+        }
+
+        if let Some(offset) = map::RAM.contains(abs_addr) {
+            return self.ram.load_16(offset);
+        }
+
+        panic!("unhandled_load_16_at_address_{:08x}", addr);
+    }
+
     pub fn load_32(&self, addr: u32) -> u32 {
         let addr = map::mask_region(addr);
 

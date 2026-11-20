@@ -452,6 +452,21 @@ pub(super) fn op_mthi(cpu: &mut Cpu, instruction: Instruction) {
     cpu.hi = cpu.reg(s);
 }
 
+pub(super) fn op_lhu(cpu: &mut Cpu, instruction: Instruction) {
+    let s = instruction.s();
+    let t = instruction.t();
+    let i = instruction.imm_se();
+
+    let addr = cpu.reg(s).wrapping_add(i);
+
+    if addr % 2 == 0 {
+        let v = cpu.load_16(addr);
+        cpu.load = (t, v as u32);
+    } else {
+        cpu.exception(Exception::LoadAddressError);
+    }
+}
+
 // COP INSTRUCTIONS
 
 pub(super) fn op_cop0(cpu: &mut Cpu, instruction: Instruction) {

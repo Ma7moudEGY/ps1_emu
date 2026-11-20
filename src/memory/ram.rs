@@ -14,6 +14,15 @@ impl Ram {
         self.data[offset as usize]
     }
 
+    pub fn load_16(&self, offset: u32) -> u16 {
+        let offset = offset as usize;
+
+        let b0 = self.data[offset + 0] as u16;
+        let b1 = self.data[offset + 1] as u16;
+
+        b0 | (b1 << 8)
+    }
+
     pub fn load_32(&self, offset: u32) -> u32 {
         let offset = offset as usize;
 

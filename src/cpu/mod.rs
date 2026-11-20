@@ -108,6 +108,10 @@ impl Cpu {
         self.inter.load_8(addr)
     }
 
+    fn load_16(&self, addr: u32) -> u16 {
+        self.inter.load_16(addr)
+    }
+
     fn fetch_instruction(&self, addr: u32) -> Instruction {
         decode(Instruction::new(self.inter.load_32(addr)))
     }

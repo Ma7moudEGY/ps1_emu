@@ -46,6 +46,7 @@ pub(super) fn decode(mut instruction: Instruction) -> Instruction {
             0b100000    => op_lb,
             0b100011    => op_lw,
             0b100100    => op_lbu,
+            0b100101    => op_lhu,
             0b101000    => op_sb,
             0b101001    => op_sh,
             0b101011    => op_sw,
