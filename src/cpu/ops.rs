@@ -532,6 +532,57 @@ pub(super) fn op_multu(cpu: &mut Cpu, instruction: Instruction) {
     cpu.lo = v as u32;
 }
 
+pub(super) fn op_xor(cpu: &mut Cpu, instruction: Instruction) {
+    let s = instruction.s();
+    let t = instruction.t();
+    let d = instruction.d();
+
+    let v = cpu.reg(s) ^ cpu.reg(t);
+
+    cpu.set_reg(d, v);
+}
+
+pub(super) fn op_break(cpu: &mut Cpu, _instruction: Instruction) {
+    cpu.exception(Exception::Break);
+}
+
+pub(super) fn op_mult(cpu: &mut Cpu, instruction: Instruction) {
+    let s = instruction.s();
+    let t = instruction.t();
+
+    let a = (cpu.reg(s) as i32) as i64;
+    let b = (cpu.reg(t) as i32) as i64;
+
+    let v = (a * b) as u64;
+
+    cpu.hi = (v >> 32) as u32;
+    cpu.lo = v as u32;
+}
+
+pub(super) fn op_sub(cpu: &mut Cpu, instruction: Instruction) {
+    let s = instruction.s();
+    let t = instruction.t();
+    let d = instruction.d();
+
+    let s = cpu.reg(s) as i32;
+    let t = cpu.reg(t) as i32;
+
+    match s.checked_sub(t) {
+        Some(v) => cpu.set_reg(d, v as u32),
+        None => cpu.exception(Exception::Overflow),
+    }
+}
+
+pub(super) fn op_xori(cpu: &mut Cpu, instruction: Instruction) {
+    let s = instruction.s();
+    let t = instruction.t();
+    let i = instruction.imm();
+
+    let v = cpu.reg(s) ^ i;
+
+    cpu.set_reg(t, v);
+}
+
 // COP INSTRUCTIONS
 
 pub(super) fn op_cop0(cpu: &mut Cpu, instruction: Instruction) {
