@@ -7,15 +7,20 @@ pub(super) fn decode(mut instruction: Instruction) -> Instruction {
                 let sub_funct = instruction.sub_function();
                 match sub_funct {
                     0x00    => op_sll,
+                    0x02    => op_srl,
                     0x03    => op_sra,
                     0x08    => op_jr,
                     0x09    => op_jalr,
+                    0x10    => op_mfhi,
+                    0x12    => op_mflo,
                     0x1a    => op_div,
+                    0x1b    => op_divu,
                     0x20    => op_add,
                     0x21    => op_addu,
                     0x23    => op_subu,
                     0x24    => op_and,
                     0x25    => op_or,
+                    0x2a    => op_slt,
                     0x2b    => op_sltu,
                     _       => todo!("unknown_sub_function_{:06x}", sub_funct)
                 }
@@ -30,6 +35,7 @@ pub(super) fn decode(mut instruction: Instruction) -> Instruction {
             0b001000    => op_addi,
             0b001001    => op_addiu,
             0b001010    => op_slti,
+            0b001011    => op_sltiu,
             0b001111    => op_lui,
             0b001100    => op_andi,
             0b001101    => op_ori,

@@ -365,6 +365,71 @@ pub(super) fn op_slti(cpu: &mut Cpu, instruction: Instruction) {
     cpu.set_reg(t, v as u32);
 }
 
+pub(super) fn op_mflo(cpu: &mut Cpu, instruction: Instruction) {
+    let d = instruction.d();
+
+    let lo = cpu.lo;
+
+    cpu.set_reg(d, lo);
+}
+
+pub(super) fn op_srl(cpu: &mut Cpu, instruction: Instruction) {
+    let t = instruction.t();
+    let d = instruction.d();
+    let i = instruction.shift();
+
+    let v = cpu.reg(t) >> i;
+
+    cpu.set_reg(d, v);
+}
+
+pub(super) fn op_sltiu(cpu: &mut Cpu, instruction: Instruction) {
+    let s = instruction.s();
+    let t = instruction.t();
+    let i = instruction.imm_se();
+
+    let v = cpu.reg(s) < i;
+
+    cpu.set_reg(t, v as u32);
+}
+
+pub(super) fn op_divu(cpu: &mut Cpu, instruction: Instruction) {
+    let s = instruction.s();
+    let t = instruction.t();
+
+    let n = cpu.reg(s);
+    let d = cpu.reg(t);
+
+    if d == 0 {
+        cpu.hi = n;
+        cpu.lo = 0xffffffff;
+    } else {
+        cpu.hi = n % d;
+        cpu.lo = n /d;
+    }
+}
+
+pub(super) fn op_mfhi(cpu: &mut Cpu, instruction: Instruction) {
+    let d = instruction.d();
+
+    let hi = cpu.hi;
+
+    cpu.set_reg(d, hi);
+}
+
+pub(super) fn op_slt(cpu: &mut Cpu, instruction: Instruction) {
+    let s = instruction.s();
+    let t = instruction.t();
+    let d = instruction.d();
+
+    let s = cpu.reg(s) as i32;
+    let t = cpu.reg(t) as i32;
+    
+    let v = s < t;
+
+    cpu.set_reg(d, v as u32);
+}
+
 // COP INSTRUCTIONS
 
 pub(super) fn op_cop0(cpu: &mut Cpu, instruction: Instruction) {
