@@ -1,7 +1,8 @@
-use crate::cpu::{Cpu, RegisterIndex, exception::Exception::{self, StoreAddressError}, instruction::Instruction};
+use crate::cpu::{Cpu, RegisterIndex, exception::Exception::{self, CoprocessorError, StoreAddressError}, instruction::{Instruction}};
 
-pub(super) fn op_todo(_cpu: &mut Cpu, instruction: Instruction) {
-    todo!("unimplemented instruction: {:08x}", instruction.raw);
+pub(super) fn op_illegal(cpu: &mut Cpu, instruction: Instruction) {
+    println!("IllegalInstruction_{}!", instruction.raw);
+    cpu.exception(Exception::IllegalInstruction);
 }
 
 pub(super) fn op_sll(cpu: &mut Cpu, instruction: Instruction) {
@@ -583,6 +584,96 @@ pub(super) fn op_xori(cpu: &mut Cpu, instruction: Instruction) {
     cpu.set_reg(t, v);
 }
 
+pub(super) fn op_lwl(cpu: &mut Cpu, instruction: Instruction) {
+    let s = instruction.s();
+    let t = instruction.t();
+    let i = instruction.imm_se();
+
+    let addr = cpu.reg(s).wrapping_add(i);
+
+    let cur_v = cpu.out_regs[t.0 as usize];
+
+    let aligned_addr = addr & !3;
+    let aligned_word = cpu.load_32(aligned_addr);
+
+    let v = match addr & 3 {
+        0 => (cur_v & 0x00ffffff) | (aligned_word << 24),
+        1 => (cur_v & 0x0000ffff) | (aligned_word << 16),
+        2 => (cur_v & 0x000000ff) | (aligned_word << 8),
+        3 => aligned_word,                               // the guide does (cur_v & 0x00000000) | (aligned_word << 0) which just returns the aligned word
+        _ => unreachable!(),
+    };
+
+    cpu.load = (t, v);
+}
+
+pub(super) fn op_lwr(cpu: &mut Cpu, instruction: Instruction) {
+    let s = instruction.s();
+    let t = instruction.t();
+    let i = instruction.imm_se();
+
+    let addr = cpu.reg(s).wrapping_add(i);
+
+    let cur_v = cpu.out_regs[t.0 as usize];
+
+    let aligned_addr = addr & !3;
+    let aligned_word = cpu.load_32(aligned_addr);
+
+    let v = match addr & 3 {
+        3 => (cur_v & 0xff000000) | (aligned_word >> 24),
+        2 => (cur_v & 0xffff0000) | (aligned_word >> 16),
+        1 => (cur_v & 0xffffff00) | (aligned_word >> 8),
+        0 => aligned_word,                               // the guide does (cur_v & 0x00000000) | (aligned_word >> 0) which just returns the aligned word
+        _ => unreachable!(),
+    };
+
+    cpu.load = (t, v);
+}
+
+pub(super) fn op_swl(cpu: &mut Cpu, instruction: Instruction) {
+    let s = instruction.s();
+    let t = instruction.t();
+    let i = instruction.imm_se();
+
+    let addr = cpu.reg(s).wrapping_add(i);
+    let v = cpu.reg(t);
+
+    let aligned_addr = addr & !3;
+    let cur_mem = cpu.load_32(aligned_addr);
+
+    let mem = match addr & 3 {
+        0 => (cur_mem & 0xffffff00) | (v >> 24),
+        1 => (cur_mem & 0xffff0000) | (v >> 16),
+        2 => (cur_mem & 0xff000000) | (v >> 8),
+        3 => v,                                 // same as the two above (cur_mem & 0x00000000 | (v >> 0))
+        _ => unreachable!(),
+    };
+
+    cpu.store_32(aligned_addr, mem);
+}
+
+pub(super) fn op_swr(cpu: &mut Cpu, instruction: Instruction) {
+    let s = instruction.s();
+    let t = instruction.t();
+    let i = instruction.imm_se();
+
+    let addr = cpu.reg(s).wrapping_add(i);
+    let v = cpu.reg(t);
+
+    let aligned_addr = addr & !3;
+    let cur_mem = cpu.load_32(aligned_addr);
+
+    let mem = match addr & 3 {
+        3 => (cur_mem & 0x00ffffff) | (v << 24),
+        2 => (cur_mem & 0x0000ffff) | (v << 16),
+        1 => (cur_mem & 0x000000ff) | (v << 8),
+        0 => v,                                 // same as the two above (cur_mem & 0x00000000 | (v >> 0))
+        _ => unreachable!(),
+    };
+
+    cpu.store_32(aligned_addr, mem);
+}
+
 // COP INSTRUCTIONS
 
 pub(super) fn op_cop0(cpu: &mut Cpu, instruction: Instruction) {
@@ -592,6 +683,18 @@ pub(super) fn op_cop0(cpu: &mut Cpu, instruction: Instruction) {
         0b10000 => op_ref(cpu, instruction),
         _ => todo!("unhandled_cop0_instruction_{:08x}", instruction.raw),
     }
+}
+
+pub(super) fn op_cop1(cpu: &mut Cpu, _instruction: Instruction) {
+    cpu.exception(CoprocessorError);
+}
+
+pub(super) fn op_cop2(_cpu: &mut Cpu, _instruction: Instruction) {
+    todo!("unhandled_GTE_instruction_{}", _instruction.raw);
+}
+
+pub(super) fn op_cop3(cpu: &mut Cpu, _instruction: Instruction) {
+    cpu.exception(CoprocessorError);
 }
 
 pub(super) fn op_mtc0(cpu: &mut Cpu, instruction: Instruction) {
@@ -638,6 +741,38 @@ pub(super) fn op_ref(cpu: &mut Cpu, instruction: Instruction) {
     let mode = cpu.sr & 0x3f;
     cpu.sr &= !0x3f;
     cpu.sr |= mode >> 2;
+}
+
+pub(super) fn op_lwc0(cpu: &mut Cpu, _instruction: Instruction) {
+    cpu.exception(CoprocessorError);
+}
+
+pub(super) fn op_lwc1(cpu: &mut Cpu, _instruction: Instruction) {
+    cpu.exception(CoprocessorError);
+}
+
+pub(super) fn op_lwc2(cpu: &mut Cpu, _instruction: Instruction) {
+    cpu.exception(CoprocessorError);
+}
+
+pub(super) fn op_lwc3(cpu: &mut Cpu, _instruction: Instruction) {
+    cpu.exception(CoprocessorError);
+}
+
+pub(super) fn op_swc0(cpu: &mut Cpu, _instruction: Instruction) {
+    cpu.exception(CoprocessorError);
+}
+
+pub(super) fn op_swc1(cpu: &mut Cpu, _instruction: Instruction) {
+    cpu.exception(CoprocessorError);
+}
+
+pub(super) fn op_swc2(cpu: &mut Cpu, _instruction: Instruction) {
+    cpu.exception(CoprocessorError);
+}
+
+pub(super) fn op_swc3(cpu: &mut Cpu, _instruction: Instruction) {
+    cpu.exception(CoprocessorError);
 }
 
 pub(super) fn op_syscall(cpu: &mut Cpu, _:Instruction) {

@@ -4,7 +4,7 @@ pub struct Instruction {
     pub execute: Op,
 }
 
-use crate::cpu::{Op, ops::op_todo};
+use crate::cpu::{Op, ops::op_illegal};
 
 use super::RegisterIndex;
 
@@ -12,7 +12,7 @@ impl Instruction {
     pub fn new(raw: u32) -> Instruction {
         Instruction {
             raw,
-            execute: op_todo,
+            execute: op_illegal,
         }
     }
 

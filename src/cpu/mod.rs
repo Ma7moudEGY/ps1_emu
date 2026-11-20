@@ -1,3 +1,5 @@
+use core::slice;
+
 use crate::{cpu::{decode::decode, exception::Exception::LoadAddressError}, interconnect::Interconnect};
 use instruction::Instruction;
 use exception::Exception;
@@ -110,6 +112,10 @@ impl Cpu {
 
     fn load_16(&self, addr: u32) -> u16 {
         self.inter.load_16(addr)
+    }
+
+    fn load_32(&self, addr: u32) -> u32 {
+        self.inter.load_32(addr)
     }
 
     fn fetch_instruction(&self, addr: u32) -> Instruction {
