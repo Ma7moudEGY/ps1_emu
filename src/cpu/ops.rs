@@ -467,6 +467,71 @@ pub(super) fn op_lhu(cpu: &mut Cpu, instruction: Instruction) {
     }
 }
 
+pub(super) fn op_sllv(cpu: &mut Cpu, instruction: Instruction) {
+    let s = instruction.s();
+    let t = instruction.t();
+    let d = instruction.d();
+
+    let v = cpu.reg(t) << (cpu.reg(s) & 0x1f);
+
+    cpu.load = (d, v);
+}
+
+pub(super) fn op_lh(cpu: &mut Cpu, instruction: Instruction) {
+    let s = instruction.s();
+    let t = instruction.t();
+    let i = instruction.imm_se();
+
+    let addr = cpu.reg(s).wrapping_add(i);
+
+    let v = cpu.load_16(addr) as i16;
+
+    cpu.load = (t, v as u32);
+}
+
+pub(super) fn op_nor(cpu: &mut Cpu, instruction: Instruction) {
+    let s = instruction.s();
+    let t = instruction.t();
+    let d = instruction.d();
+
+    let v = !(cpu.reg(s) | cpu.reg(t));
+
+    cpu.set_reg(d, v);
+}
+
+pub(super) fn op_srav(cpu: &mut Cpu, instruction: Instruction) {
+    let s = instruction.s();
+    let t = instruction.t();
+    let d = instruction.d();
+
+    let v = (cpu.reg(t) as i32) >> (cpu.reg(s) & 0x1f);
+
+    cpu.set_reg(d, v as u32);
+}
+
+pub(super) fn op_srlv(cpu: &mut Cpu, instruction: Instruction) {
+    let s = instruction.s();
+    let t = instruction.t();
+    let d = instruction.d();
+
+    let v = cpu.reg(t) >> (cpu.reg(s) & 0x1f);
+
+    cpu.load = (d, v);
+}
+
+pub(super) fn op_multu(cpu: &mut Cpu, instruction: Instruction) {
+    let s = instruction.s();
+    let t = instruction.t();
+
+    let a = cpu.reg(s) as u64;
+    let b = cpu.reg(t) as u64;
+
+    let v = a * b;
+
+    cpu.hi = (v >> 32) as u32;
+    cpu.lo = v as u32;
+}
+
 // COP INSTRUCTIONS
 
 pub(super) fn op_cop0(cpu: &mut Cpu, instruction: Instruction) {
