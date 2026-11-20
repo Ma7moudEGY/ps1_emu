@@ -11,6 +11,7 @@ pub(super) fn decode(mut instruction: Instruction) -> Instruction {
                     0x03    => op_sra,
                     0x08    => op_jr,
                     0x09    => op_jalr,
+                    0x0c    => op_syscall,
                     0x10    => op_mfhi,
                     0x12    => op_mflo,
                     0x1a    => op_div,

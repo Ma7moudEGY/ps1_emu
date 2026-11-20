@@ -1,4 +1,4 @@
-use crate::cpu::{Cpu, RegisterIndex, instruction::Instruction};
+use crate::cpu::{Cpu, RegisterIndex, exception::Exception, instruction::Instruction};
 
 pub(super) fn op_todo(_cpu: &mut Cpu, instruction: Instruction) {
     todo!("unimplemented instruction: {:08x}", instruction.raw);
@@ -203,11 +203,11 @@ pub(super) fn op_sw(cpu: &mut Cpu, instruction: Instruction) {
 pub(super) fn op_j(cpu: &mut Cpu, instruction: Instruction) {
     let i = instruction.imm_jump();
 
-    cpu.pc = (cpu.pc & 0xf0000000) | (i << 2);
+    cpu.next_pc = (cpu.pc & 0xf0000000) | (i << 2);
 }
 
 pub(super) fn op_jal(cpu: &mut Cpu, instruction: Instruction) {
-    let ra = cpu.pc;
+    let ra = cpu.next_pc;
 
     cpu.set_reg(RegisterIndex(31), ra);
 
@@ -259,7 +259,7 @@ pub(super) fn op_sb(cpu: &mut Cpu, instruction: Instruction) {
 pub(super) fn op_jr(cpu: &mut Cpu, instruction: Instruction) {
     let s = instruction.s();
 
-    cpu.pc = cpu.reg(s);
+    cpu.next_pc = cpu.reg(s);
 }
 
 pub(super) fn op_lb(cpu: &mut Cpu, instruction: Instruction) {
@@ -301,7 +301,7 @@ pub(super) fn op_bxx(cpu: &mut Cpu, instruction: Instruction) {
 
     if test != 0 {
         if is_link {
-            let ra = cpu.pc;
+            let ra = cpu.next_pc;
 
             cpu.set_reg(RegisterIndex(31), ra);
         }
@@ -348,11 +348,11 @@ pub(super) fn op_jalr(cpu: &mut Cpu, instruction: Instruction) {
     let s = instruction.s();
     let d = instruction.d();
 
-    let ra = cpu.pc;
+    let ra = cpu.next_pc;
 
     cpu.set_reg(d, ra);
 
-    cpu.pc = cpu.reg(s);
+    cpu.next_pc = cpu.reg(s);
 }
 
 pub(super) fn op_slti(cpu: &mut Cpu, instruction: Instruction) {
@@ -468,9 +468,14 @@ pub(super) fn op_mfc0(cpu: &mut Cpu, instruction: Instruction) {
 
     let v = match cop_r {
         12 => cpu.sr,
-        13 => todo!("unhandled_read_from_CAUSE_register"),
+        13 => cpu.cause,
+        14 => cpu.epc,
         _ => todo!("uhandled_read_from_cop0r{:08x}", cop_r),
     };
 
     cpu.load = (cpu_r, v)
+}
+
+pub(super) fn op_syscall(cpu: &mut Cpu, _:Instruction) {
+    cpu.exception(Exception::SysCall);
 }
