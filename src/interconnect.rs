@@ -1,15 +1,19 @@
-use crate::memory::{Bios, Ram};
+use crate::{
+    dma::{Direction, Dma, Port, Step, Sync}, memory::{Bios, Ram},
+};
 
 pub struct Interconnect {
     bios: Bios,
     ram: Ram,
+    dma: Dma,
 }
 
 impl Interconnect {
-    pub fn new(bios: Bios, ram: Ram) -> Self {
+    pub fn new(bios: Bios, ram: Ram, dma: Dma) -> Self {
         Interconnect {
             bios: bios,
             ram: ram,
+            dma: dma,
         }
     }
 
@@ -71,18 +75,22 @@ impl Interconnect {
             return 0;
         }
 
-        if let Some(_) = map::DMA.contains(abs_addr) {
-            println!("DMA_read_{:08x}", abs_addr);
-            return 0;
+        if let Some(offset) = map::DMA.contains(abs_addr) {
+            return self.dma_reg(offset);
         }
 
         if let Some(offset) = map::GPU.contains(abs_addr) {
             println!("GPU_read_{}", offset);
 
             return match offset {
-                4 => 0x10000000,
+                4 => 0x1c000000,
                 _ => 0,
             };
+        }
+
+        if let Some(offset) = map::TIMERS.contains(abs_addr) {
+            println!("unhandled_read_from_timer_register_{:x}", offset);
+            return 0;
         }
 
         todo!("unhandled_load_32_at_address_{:08x}", addr);
@@ -184,9 +192,8 @@ impl Interconnect {
             return;
         }
 
-        if let Some(_) = map::DMA.contains(abs_addr) {
-            println!("DMA_write:_{:08x}_{:08x}", abs_addr, val);
-            return;
+        if let Some(offset) = map::DMA.contains(abs_addr) {
+            return self.set_dma_reg(offset, val);
         }
 
         if let Some(offset) = map::GPU.contains(abs_addr) {
@@ -200,6 +207,117 @@ impl Interconnect {
         }
 
         todo!("unhandled_store_32_into_address_{:08x}:_{:08x}", addr, val);
+    }
+
+    fn dma_reg(&self, offset: u32) -> u32 {
+        let major = (offset & 0x70) >> 4;
+        let minor = offset & 0xf;
+
+        match major {
+            0..=6 => {
+                let channel = self.dma.channel(Port::from_index(major));
+
+                match minor {
+                    0 => channel.base(),
+                    4 => channel.block_control(),
+                    8 => channel.control(),
+                    _ => todo!("uhandled_DMA_read_at_{:x}", offset),
+                }
+            }
+
+            7 => match minor {
+                0 => self.dma.control(),
+                4 => self.dma.interrupt(),
+                _ => todo!("uhandled_DMA_read_at_{:x}", offset),
+            },
+
+            _ => todo!("uhandled_DMA_read_at_{:x}", offset),
+        }
+    }
+
+    fn set_dma_reg(&mut self, offset: u32, val: u32) {
+        let major = (offset & 0x70) >> 4;
+        let minor = offset & 0xf;
+
+        let active_port = match major {
+            0..=6 => {
+                let port = Port::from_index(major);
+                let channel = self.dma.channel_mut(port);
+
+                match minor {
+                    0 => channel.set_base(val),
+                    4 => channel.set_block_control(val),
+                    8 => channel.set_control(val),
+                    _ => todo!("uhandled_DMA_write_at_{:x}:_{:08x}", offset, val),
+                }
+
+                if channel.active() { 
+                    Some(port)
+                } else { 
+                    None }
+            }
+
+            7 => {
+                match minor {
+                    0 => self.dma.set_control(val),
+                    4 => self.dma.set_interrupt(val),
+                    _ => todo!("uhandled_DMA_write_at_{:x}:_{:08x}", offset, val),
+                }
+
+                None
+            }
+            _ => todo!("uhandled_DMA_write_at_{:x}:_{:08x}", offset, val),
+        };
+
+        if let Some(port) = active_port {
+            self.do_dma(port);
+        }
+    }
+
+    fn do_dma(&mut self, port: Port) {
+        match self.dma.channel(port).sync() {
+            Sync::LinkedList => todo!("LinkedList_mode_unsupported"),
+            _                => self.do_dma_block(port),
+        }
+    }
+
+    fn do_dma_block(&mut self, port: Port) {
+        let channel = self.dma.channel_mut(port);
+
+        let increment = match channel.step() {
+            Step::Increment => 4,
+            Step::Decrement => -4i32 as u32,
+        };
+
+        let mut addr = channel.base();
+
+        let mut remsz = match channel.transfer_size() {
+            Some(n) => n,
+            None => panic!("couldn't_figure_out_DMA_block_transfer_size"),
+        };
+
+        while remsz > 0 {
+            let cur_addr = addr & 0x1ffffc;
+
+            match channel.dir() {
+                Direction::FromRam => todo!("unhandled_DMA_direction"),
+                Direction::ToRam => {
+                    let src_word = match port {
+                        Port::Otc => match remsz {
+                            1 => 0xffffff,
+                            _ => addr.wrapping_sub(4) & 0x1fffff,
+                        },
+                        _ => todo!("unhandled_DMA_source_port_{}", port as u8)
+                    };
+
+                    self.ram.store_32(cur_addr, src_word);
+                }
+            }
+
+            addr = addr.wrapping_add(increment);
+            remsz -= 1;
+        }
+        channel.done();
     }
 }
 
