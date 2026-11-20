@@ -45,6 +45,11 @@ impl Interconnect {
         if let Some(offset) = map::RAM.contains(addr) {
             return self.ram.load_32(offset);
         }
+        
+        if let Some(offset) = map::IRQ_CONTROL.contains(addr) {
+            println!("IRQ_CONTROL_read_{:x}", offset);
+            return 0;
+        }
 
         todo!("unhandled_load_32_at_address_{:08x}", addr);
     }
@@ -74,6 +79,11 @@ impl Interconnect {
 
         if let Some(offset) = map::SPU.contains(abs_addr) {
             println!("unhandled_write_to_SPU_register_{:x}", offset);
+            return;
+        }
+
+        if let Some(offset) = map::TIMERS.contains(abs_addr) {
+            println!("uhandled_write_to_timer_register_{:x}", offset);
             return;
         }
 
@@ -179,4 +189,6 @@ mod map {
     pub const EXPANSION_2: Range = Range(0x1f802000, 66);
 
     pub const IRQ_CONTROL: Range = Range(0x1f801070, 8);
+
+    pub const TIMERS: Range = Range(0x1f801100, 0x30);
 }
