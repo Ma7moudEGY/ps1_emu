@@ -1,4 +1,4 @@
-use crate::{cpu::{decode::decode}, interconnect::Interconnect};
+use crate::{cpu::{decode::decode, exception::Exception::LoadAddressError}, interconnect::Interconnect};
 use instruction::Instruction;
 use exception::Exception;
 
@@ -27,6 +27,8 @@ pub struct Cpu {
     current_pc: u32,
     cause: u32,
     epc: u32,
+    branch: bool,
+    delay_slot: bool,
 }
 
 impl Cpu {
@@ -49,6 +51,8 @@ impl Cpu {
             current_pc: pc,
             cause: 0,
             epc: 0,
+            branch: false,
+            delay_slot: false,
         }
     }
 
@@ -62,10 +66,14 @@ impl Cpu {
     }
 
     pub fn run_next_instruction(&mut self) {
-        let pc = self.pc;
-
-        let instruction = self.fetch_instruction(pc);
         self.current_pc = self.pc;
+
+        if self.current_pc % 4 != 0 {
+            self.exception(LoadAddressError);
+            return;
+        }
+
+        let instruction = self.fetch_instruction(self.pc);
 
         self.pc = self.next_pc;
         self.next_pc = self.next_pc.wrapping_add(4);
@@ -74,6 +82,9 @@ impl Cpu {
         self.set_reg(reg, val);
 
         self.load = (RegisterIndex(0), 0);
+
+        self.delay_slot = self.branch;
+        self.branch = false;
 
         self.execute(instruction);
 
@@ -89,6 +100,7 @@ impl Cpu {
 
         pc = pc .wrapping_sub(4);
 
+        self.branch = true;
         self.next_pc = pc;
     }
 
@@ -133,6 +145,12 @@ impl Cpu {
         self.cause = (cause as u32) << 2;
 
         self.epc = self.current_pc;
+
+        if self.delay_slot {
+            self.epc = self.epc.wrapping_sub(4);
+            self.cause |= 1 << 31;
+        }
+
         self.pc = handler;
         self.next_pc = self.pc.wrapping_add(4);
 

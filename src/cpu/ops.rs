@@ -1,4 +1,4 @@
-use crate::cpu::{Cpu, RegisterIndex, exception::Exception, instruction::Instruction};
+use crate::cpu::{Cpu, RegisterIndex, exception::Exception::{self, StoreAddressError}, instruction::Instruction};
 
 pub(super) fn op_todo(_cpu: &mut Cpu, instruction: Instruction) {
     todo!("unimplemented instruction: {:08x}", instruction.raw);
@@ -56,12 +56,10 @@ pub(super) fn op_add(cpu: &mut Cpu, instruction: Instruction) {
     let s = cpu.reg(s) as i32;
     let t = cpu.reg(t) as i32;
 
-    let v = match s.checked_add(t) {
-        Some(v) => v as u32,
-        None => todo!("ADD_overflow"),
+    match s.checked_add(t) {
+        Some(v) => cpu.set_reg(d, v as u32),
+        None => cpu.exception(Exception::Overflow),
     };
-
-    cpu.set_reg(d, v);
 }
 
 pub(super) fn op_addu(cpu: &mut Cpu, instruction: Instruction) {
@@ -131,12 +129,10 @@ pub(super) fn op_addi(cpu: &mut Cpu, instruction: Instruction) {
 
     let s = cpu.reg(s) as i32;
 
-    let v = match s.checked_add(i) {
-        Some(v) => v as u32,
-        None => todo!("ADDI_overflow"),
+    match s.checked_add(i) {
+        Some(v) => cpu.set_reg(t, v as u32),
+        None => cpu.exception(Exception::Overflow),
     };
-
-    cpu.set_reg(t, v);
 }
 
 pub(super) fn op_lui(cpu: &mut Cpu, instruction: Instruction) {
@@ -179,10 +175,12 @@ pub(super) fn op_lw(cpu: &mut Cpu, instruction: Instruction) {
     let i = instruction.imm_se();
 
     let addr = cpu.reg(s).wrapping_add(i);
-
-    let v = cpu.read_word(addr);
-
-    cpu.load = (t, v);
+    if addr % 4 == 0 {
+        let v = cpu.read_word(addr);
+        cpu.load = (t, v);
+    } else {
+        cpu.exception(Exception::LoadAddressError);
+    }
 }
 
 pub(super) fn op_sw(cpu: &mut Cpu, instruction: Instruction) {
@@ -195,13 +193,18 @@ pub(super) fn op_sw(cpu: &mut Cpu, instruction: Instruction) {
     let i = instruction.imm_se();
 
     let addr = cpu.reg(s).wrapping_add(i);
-    let v = cpu.reg(t);
 
-    cpu.store_32(addr, v);
+    if addr % 4 == 0 {
+        let v = cpu.reg(t);
+        cpu.store_32(addr, v);
+    } else {
+        cpu.exception(Exception::StoreAddressError);
+    }
 }
 
 pub(super) fn op_j(cpu: &mut Cpu, instruction: Instruction) {
     let i = instruction.imm_jump();
+    cpu.branch = true;
 
     cpu.next_pc = (cpu.pc & 0xf0000000) | (i << 2);
 }
@@ -225,9 +228,14 @@ pub(super) fn op_sh(cpu: &mut Cpu, instruction: Instruction) {
     let i = instruction.imm_se();
 
     let addr = cpu.reg(s).wrapping_add(i);
-    let v = cpu.reg(t);
 
-    cpu.store_16(addr, v as u16);
+    if addr % 2 == 0 {
+        let v = cpu.reg(t);
+        cpu.store_16(addr, v as u16);
+    } else {
+        cpu.exception(StoreAddressError);
+    }
+
 }
 
 pub(super) fn op_bne(cpu: &mut Cpu, instruction: Instruction) {
@@ -259,6 +267,7 @@ pub(super) fn op_sb(cpu: &mut Cpu, instruction: Instruction) {
 pub(super) fn op_jr(cpu: &mut Cpu, instruction: Instruction) {
     let s = instruction.s();
 
+    cpu.branch = true;
     cpu.next_pc = cpu.reg(s);
 }
 
@@ -352,6 +361,7 @@ pub(super) fn op_jalr(cpu: &mut Cpu, instruction: Instruction) {
 
     cpu.set_reg(d, ra);
 
+    cpu.branch = true;
     cpu.next_pc = cpu.reg(s);
 }
 
@@ -430,12 +440,25 @@ pub(super) fn op_slt(cpu: &mut Cpu, instruction: Instruction) {
     cpu.set_reg(d, v as u32);
 }
 
+pub(super) fn op_mtlo(cpu: &mut Cpu, instruction: Instruction) {
+    let s = instruction.s();
+
+    cpu.lo = cpu.reg(s);
+}
+
+pub(super) fn op_mthi(cpu: &mut Cpu, instruction: Instruction) {
+    let s = instruction.s();
+
+    cpu.hi = cpu.reg(s);
+}
+
 // COP INSTRUCTIONS
 
 pub(super) fn op_cop0(cpu: &mut Cpu, instruction: Instruction) {
     match instruction.cop_opcode() {
-        0b00100 => op_mtc0(cpu, instruction),
         0b00000 => op_mfc0(cpu, instruction),
+        0b00100 => op_mtc0(cpu, instruction),
+        0b10000 => op_ref(cpu, instruction),
         _ => todo!("unhandled_cop0_instruction_{:08x}", instruction.raw),
     }
 }
@@ -474,6 +497,16 @@ pub(super) fn op_mfc0(cpu: &mut Cpu, instruction: Instruction) {
     };
 
     cpu.load = (cpu_r, v)
+}
+
+pub(super) fn op_ref(cpu: &mut Cpu, instruction: Instruction) {
+    if instruction.raw & 0x3f != 0b010000 {
+        panic!("invaild_cop0_instruction:{}", instruction.raw);
+    }
+
+    let mode = cpu.sr & 0x3f;
+    cpu.sr &= !0x3f;
+    cpu.sr |= mode >> 2;
 }
 
 pub(super) fn op_syscall(cpu: &mut Cpu, _:Instruction) {
