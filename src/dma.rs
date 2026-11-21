@@ -207,7 +207,7 @@ impl Channel {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq)]
 pub enum Direction {
     ToRam = 0,
     FromRam = 1,
@@ -226,7 +226,7 @@ pub enum Sync {
     LinkedList = 2,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq)]
 pub enum Port {
     MdecIn = 0,
     MdecOut = 1,

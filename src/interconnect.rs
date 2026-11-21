@@ -276,7 +276,7 @@ impl Interconnect {
 
     fn do_dma(&mut self, port: Port) {
         match self.dma.channel(port).sync() {
-            Sync::LinkedList => todo!("LinkedList_mode_unsupported"),
+            Sync::LinkedList => self.do_dma_linked_list(port),
             _                => self.do_dma_block(port),
         }
     }
@@ -300,7 +300,14 @@ impl Interconnect {
             let cur_addr = addr & 0x1ffffc;
 
             match channel.dir() {
-                Direction::FromRam => todo!("unhandled_DMA_direction"),
+                Direction::FromRam => {
+                    let src_word = self.ram.load_32(cur_addr);
+
+                    match port {
+                        Port::Gpu => println!("GPU_data_{:08x}", src_word),
+                        _ => todo!("unhandled_DMA_destination_port_{}", port as u8)
+                    }
+                },
                 Direction::ToRam => {
                     let src_word = match port {
                         Port::Otc => match remsz {
@@ -317,6 +324,42 @@ impl Interconnect {
             addr = addr.wrapping_add(increment);
             remsz -= 1;
         }
+        channel.done();
+    }
+
+    fn do_dma_linked_list(&mut self, port: Port) {
+        let channel = self.dma.channel_mut(port);
+        let mut addr = channel.base() & 0x1ffffc;
+
+        if channel.dir() == Direction::ToRam {
+            panic!("Invalid_DMA_direction_for_LinkedList_mode");
+        }
+
+        if port != Port::Gpu {
+            todo!("attemped_LinkedList_DMA_on_port_{}", port as u8);
+        }
+
+        loop {
+            let header = self.ram.load_32(addr);
+            let mut remsz = header >> 24;
+
+            while remsz > 0 {
+                addr = (addr + 4) & 0x1ffffc;
+
+                let command = self.ram.load_32(addr);
+
+                println!("GPU_command_{:08x}", command);
+
+                remsz -= 1;
+            }
+
+            if header & 0x800000 != 0 {
+                break;
+            }
+
+            addr = header & 0x1ffffc;
+        }
+
         channel.done();
     }
 }
