@@ -1,19 +1,21 @@
 use crate::{
-    dma::{Direction, Dma, Port, Step, Sync}, memory::{Bios, Ram},
+    dma::{Direction, Dma, Port, Step, Sync}, gpu::Gpu, memory::{Bios, Ram},
 };
 
 pub struct Interconnect {
     bios: Bios,
     ram: Ram,
     dma: Dma,
+    gpu: Gpu
 }
 
 impl Interconnect {
-    pub fn new(bios: Bios, ram: Ram, dma: Dma) -> Self {
+    pub fn new(bios: Bios, ram: Ram, dma: Dma, gpu: Gpu) -> Self {
         Interconnect {
             bios: bios,
             ram: ram,
             dma: dma,
+            gpu: gpu,
         }
     }
 
@@ -83,7 +85,7 @@ impl Interconnect {
             println!("GPU_read_{}", offset);
 
             return match offset {
-                4 => 0x1c000000,
+                4 => self.gpu.status(),
                 _ => 0,
             };
         }
@@ -197,7 +199,11 @@ impl Interconnect {
         }
 
         if let Some(offset) = map::GPU.contains(abs_addr) {
-            println!("GPU_write_{}:{:08x}", offset, val);
+            match offset {
+                0 => self.gpu.gp0(val),
+                4 => self.gpu.gp1(val),
+                _ => todo!("GPU_write_{}:{:08x}", offset, val),
+            }
             return;
         }
 
@@ -304,7 +310,7 @@ impl Interconnect {
                     let src_word = self.ram.load_32(cur_addr);
 
                     match port {
-                        Port::Gpu => println!("GPU_data_{:08x}", src_word),
+                        Port::Gpu => self.gpu.gp0(src_word),
                         _ => todo!("unhandled_DMA_destination_port_{}", port as u8)
                     }
                 },
@@ -348,7 +354,7 @@ impl Interconnect {
 
                 let command = self.ram.load_32(addr);
 
-                println!("GPU_command_{:08x}", command);
+                self.gpu.gp0(command);
 
                 remsz -= 1;
             }

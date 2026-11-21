@@ -13,7 +13,8 @@ fn main() {
     let bios = memory::Bios::new("bios/SCPH1001.BIN").expect("failed_to_load_bios");
     let ram = memory::Ram::new();
     let dma = dma::Dma::new();
-    let inter = interconnect::Interconnect::new(bios, ram, dma);
+    let gpu = gpu::Gpu::new();
+    let inter = interconnect::Interconnect::new(bios, ram, dma, gpu);
     let mut cpu = cpu::Cpu::new(inter);
 
     loop {
