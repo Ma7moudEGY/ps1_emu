@@ -83,6 +83,12 @@ impl Cpu {
             return 1;
         }
 
+        if self.sr & 1 != 0 && self.inter.interrupt_pending() {
+            self.exception(Exception::Int);
+            self.inter.sync(1);
+            return 1;
+        }
+
         let (instruction, cycles) = self.fetch_instruction(self.pc);
 
         self.pc = self.next_pc;
@@ -180,6 +186,10 @@ impl Cpu {
         self.sr |= (mode << 2) & 0x3f;
 
         self.cause = (cause as u32) << 2;
+
+        if cause == Exception::Int {
+            self.cause |= 1 << 10;
+        }
 
         self.epc = self.current_pc;
 

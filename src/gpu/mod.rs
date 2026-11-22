@@ -51,7 +51,7 @@ pub struct Gpu {
     read_word: u32,
     cycles: u32,
     scanline: u32,
-    in_vblank: bool,
+    pub in_vblank: bool,
     frame: u32,
 }
 

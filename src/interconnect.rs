@@ -1,21 +1,25 @@
 use crate::{
-    dma::{Direction, Dma, Port, Step, Sync}, gpu::Gpu, memory::{Bios, Ram},
+    dma::{Direction, Dma, Port, Step, Sync}, gpu::Gpu, interrupts::InterruptControl, memory::{Bios, Ram},
 };
 
 pub struct Interconnect {
     bios: Bios,
     ram: Ram,
     dma: Dma,
-    gpu: Gpu
+    gpu: Gpu,
+    interrupt_control: InterruptControl,
+    prev_vblank: bool,
 }
 
 impl Interconnect {
-    pub fn new(bios: Bios, ram: Ram, dma: Dma, gpu: Gpu) -> Self {
+    pub fn new(bios: Bios, ram: Ram, dma: Dma, gpu: Gpu, interrupt_control: InterruptControl) -> Self {
         Interconnect {
             bios: bios,
             ram: ram,
             dma: dma,
             gpu: gpu,
+            interrupt_control: interrupt_control,
+            prev_vblank: false
         }
     }
 
@@ -30,8 +34,7 @@ impl Interconnect {
             return self.bios.load(offset);
         }
         if let Some(offset) = map::IRQ_CONTROL.contains(abs_addr) {
-            println!("IRQ_CONTROL_read_{:x}", offset);
-            return Addressable::from_u32(0);
+            return self.interrupt_control.load(offset)
         }
 
         if let Some(offset) = map::DMA.contains(abs_addr) {
@@ -70,8 +73,7 @@ impl Interconnect {
         }
 
         if let Some(offset) = map::IRQ_CONTROL.contains(abs_addr) {
-            println!("IRQ_CONTROL:_{:x}_<-_{:08x}", offset, val.as_u32());
-            return;
+            return self.interrupt_control.store(offset, val);
         }
 
         if let Some(offset) = map::DMA.contains(abs_addr) {
@@ -298,6 +300,15 @@ impl Interconnect {
 
     pub fn sync(&mut self, cycles: u32) {
         self.gpu.sync(cycles);
+
+        if self.gpu.in_vblank && !self.prev_vblank {
+            self.interrupt_control.raise(0);
+        }
+        self.prev_vblank = self.gpu.in_vblank;
+    }
+
+    pub fn interrupt_pending(&self) -> bool {
+        self.interrupt_control.pending()
     }
 }
 

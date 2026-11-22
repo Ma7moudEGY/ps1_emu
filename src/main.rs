@@ -96,7 +96,8 @@ fn main() {
     let ram = memory::Ram::new();
     let dma = dma::Dma::new();
     let gpu = gpu::Gpu::new();
-    let inter = interconnect::Interconnect::new(bios, ram, dma, gpu);
+    let interrupt_control = interrupts::InterruptControl::new();
+    let inter = interconnect::Interconnect::new(bios, ram, dma, gpu, interrupt_control);
     let cpu = cpu::Cpu::new(inter);
 
     let event_loop = EventLoop::new().expect("failed_to_create_event_loop");

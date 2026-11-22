@@ -1,4 +1,6 @@
+#[derive(Clone, Copy, PartialEq)]
 pub enum Exception {
+    Int = 0x0,
     LoadAddressError = 0x4,
     StoreAddressError = 0x5,
     SysCall = 0x8,
