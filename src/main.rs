@@ -1,4 +1,4 @@
-use winit::{application::ApplicationHandler, event::WindowEvent, event_loop::EventLoop};
+use winit::{application::ApplicationHandler, event::{ElementState, WindowEvent}, event_loop::EventLoop, keyboard::{Key, KeyCode, PhysicalKey}};
 
 use crate::frontend::video::Renderer;
 
@@ -71,6 +71,11 @@ impl ApplicationHandler for App {
                 }
             },
             WindowEvent::RedrawRequested => self.run_frame(),
+            WindowEvent::KeyboardInput { event, ..} => {
+                if event.state == ElementState::Pressed && event.physical_key == PhysicalKey::Code(KeyCode::Escape) {
+                    event_loop.exit();
+                }
+            },
             _ => {}
         }
     }
