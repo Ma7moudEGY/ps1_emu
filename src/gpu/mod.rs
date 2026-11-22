@@ -1,4 +1,4 @@
-use crate::frontend::video::{Position, Color, Triangle, Renderer};
+use crate::frontend::video::{Color, Position, Renderer, Triangle};
 
 mod commands;
 mod renderer;
@@ -97,7 +97,7 @@ impl Gpu {
     pub fn render(&mut self, renderer: &mut Renderer) {
         renderer.display(&self.pending_triangles);
         self.pending_triangles.clear();
-    }    
+    }
 
     pub fn status(&self) -> u32 {
         let mut r = 0u32;
@@ -248,7 +248,23 @@ impl Gpu {
     }
 
     fn gp0_quad_mono_opaque(&mut self) {
-        println!("Draw_quad");
+        let positions_1 = [
+            Position::from_gp0(self.gp0_command[1]),
+            Position::from_gp0(self.gp0_command[2]),
+            Position::from_gp0(self.gp0_command[3]),
+        ].map(|p| self.apply_draw_offset(p));
+
+        let positions_2 = [
+            Position::from_gp0(self.gp0_command[2]),
+            Position::from_gp0(self.gp0_command[3]),
+            Position::from_gp0(self.gp0_command[4]),
+        ].map(|p| self.apply_draw_offset(p));
+
+        let colors_1 = [Color::from_gp0(self.gp0_command[0]); 3];
+        let colors_2 = [Color::from_gp0(self.gp0_command[0]); 3];
+
+        self.pending_triangles.push(Triangle { positions: positions_1, colors: colors_1 });
+        self.pending_triangles.push(Triangle { positions: positions_2, colors: colors_2 });
     }
 
     fn gp0_clear_cache(&mut self) {
@@ -280,7 +296,32 @@ impl Gpu {
     }
 
     fn gp0_quad_shaded_opaque(&mut self) {
-        println!("Draw_quad_shaded");
+        let positions_1 = [
+            Position::from_gp0(self.gp0_command[1]),
+            Position::from_gp0(self.gp0_command[3]),
+            Position::from_gp0(self.gp0_command[5]),
+        ].map(|p| self.apply_draw_offset(p));
+
+        let positions_2 = [
+            Position::from_gp0(self.gp0_command[3]),
+            Position::from_gp0(self.gp0_command[5]),
+            Position::from_gp0(self.gp0_command[7]),
+        ].map(|p| self.apply_draw_offset(p));
+
+        let colors_1 = [
+            Color::from_gp0(self.gp0_command[0]),
+            Color::from_gp0(self.gp0_command[2]),
+            Color::from_gp0(self.gp0_command[4]),
+        ];
+
+        let colors_2 = [
+            Color::from_gp0(self.gp0_command[2]),
+            Color::from_gp0(self.gp0_command[4]),
+            Color::from_gp0(self.gp0_command[6]),
+        ];
+
+        self.pending_triangles.push(Triangle { positions: positions_1, colors: colors_1 });
+        self.pending_triangles.push(Triangle { positions: positions_2, colors: colors_2 });
     }
 
     fn gp0_triangle_shaded_opaque(&mut self) {
@@ -288,7 +329,7 @@ impl Gpu {
             Position::from_gp0(self.gp0_command[1]),
             Position::from_gp0(self.gp0_command[3]),
             Position::from_gp0(self.gp0_command[5]),
-        ];
+        ].map(|p| self.apply_draw_offset(p));
 
         let colors = [
             Color::from_gp0(self.gp0_command[0]),
@@ -300,7 +341,26 @@ impl Gpu {
     }
 
     fn gp0_quad_texture_blend_opaque(&mut self) {
-        println!("Draw_quad_texture_blending");
+        let positions_1 = [
+            Position::from_gp0(self.gp0_command[1]),
+            Position::from_gp0(self.gp0_command[3]),
+            Position::from_gp0(self.gp0_command[5]),
+        ].map(|p| self.apply_draw_offset(p));
+
+        let positions_2 = [
+            Position::from_gp0(self.gp0_command[3]),
+            Position::from_gp0(self.gp0_command[5]),
+            Position::from_gp0(self.gp0_command[7]),
+        ].map(|p| self.apply_draw_offset(p));
+
+        let colors = [Color {
+            r: 0x80,
+            g: 0x00,
+            b: 0x00,
+        }; 3];
+
+        self.pending_triangles.push(Triangle { positions: positions_1, colors });
+        self.pending_triangles.push(Triangle { positions: positions_2, colors });
     }
 
     pub fn gp1(&mut self, val: u32) {
@@ -424,6 +484,13 @@ impl Gpu {
         self.gp0_command.clear();
         self.gp0_words_remaining = 0;
         self.gp0_mode = Gp0Mode::Command;
+    }
+
+    fn apply_draw_offset(&self, p: Position) -> Position {
+        Position {
+            x: p.x.wrapping_add(self.drawing_x_offset),
+            y: p.y.wrapping_add(self.drawing_y_offset),
+        }
     }
 }
 
