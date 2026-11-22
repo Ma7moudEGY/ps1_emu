@@ -1,8 +1,9 @@
-use core::slice;
-
-use crate::{cpu::{decode::decode, exception::Exception::LoadAddressError}, interconnect::Interconnect};
-use instruction::Instruction;
+use crate::{
+    cpu::{decode::decode, exception::Exception::LoadAddressError},
+    interconnect::{Addressable, Interconnect},
+};
 use exception::Exception;
+use instruction::Instruction;
 
 mod decode;
 mod exception;
@@ -37,7 +38,7 @@ impl Cpu {
     pub fn new(inter: Interconnect) -> Cpu {
         let mut regs = [0xdeadbeef; 32];
         regs[0] = 0;
-        let pc  = 0xbfc00000;
+        let pc = 0xbfc00000;
 
         Cpu {
             pc: pc,
@@ -48,7 +49,7 @@ impl Cpu {
             inter: inter,
             next_instruction: decode(Instruction::new(0x0)),
             hi: 0xdeadbeef,
-            lo: 0xdeadbeef, 
+            lo: 0xdeadbeef,
             sr: 0,
             current_pc: pc,
             cause: 0,
@@ -100,42 +101,30 @@ impl Cpu {
 
         pc = pc.wrapping_add(offset);
 
-        pc = pc .wrapping_sub(4);
+        pc = pc.wrapping_sub(4);
 
         self.branch = true;
         self.next_pc = pc;
     }
 
-    fn load_8(&self, addr: u32) -> u8 {
-        self.inter.load_8(addr)
+    fn load<T: Addressable>(&self, addr: u32) -> T {
+        self.inter.load(addr)
     }
 
-    fn load_16(&self, addr: u32) -> u16 {
-        self.inter.load_16(addr)
-    }
-
-    fn load_32(&self, addr: u32) -> u32 {
-        self.inter.load_32(addr)
+    fn store<T: Addressable>(&mut self, addr: u32, val: T) {
+        if self.sr & 0x10000 != 0 {
+            println!("ignoring_store_while_cache_is_isolated");
+            return;
+        }
+        self.inter.store(addr, val)
     }
 
     fn fetch_instruction(&self, addr: u32) -> Instruction {
-        decode(Instruction::new(self.inter.load_32(addr)))
+        decode(Instruction::new(self.inter.load(addr)))
     }
 
     fn read_word(&self, addr: u32) -> u32 {
-        self.inter.load_32(addr)
-    }
-
-    fn store_8(&mut self, addr: u32, val: u8) {
-        self.inter.store_8(addr, val);
-    }
-
-    fn store_16(&mut self, addr: u32, val: u16) {
-        self.inter.store_16(addr, val);
-    }
-
-    fn store_32(&mut self, addr: u32, val: u32) {
-        self.inter.store_32(addr, val);
+        self.inter.load(addr)
     }
 
     fn execute(&mut self, instruction: Instruction) {
@@ -144,8 +133,8 @@ impl Cpu {
 
     fn exception(&mut self, cause: Exception) {
         let handler: u32 = match self.sr & (1 << 22) != 0 {
-            true    => 0xbfc00180,
-            false   => 0x80000080,
+            true => 0xbfc00180,
+            false => 0x80000080,
         };
 
         let mode = self.sr & 0x3f;
@@ -163,7 +152,6 @@ impl Cpu {
 
         self.pc = handler;
         self.next_pc = self.pc.wrapping_add(4);
-
     }
 
     pub fn interconnect_mut(&mut self) -> &mut Interconnect {

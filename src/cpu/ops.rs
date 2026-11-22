@@ -185,10 +185,6 @@ pub(super) fn op_lw(cpu: &mut Cpu, instruction: Instruction) {
 }
 
 pub(super) fn op_sw(cpu: &mut Cpu, instruction: Instruction) {
-    if cpu.sr & 0x10000 != 0 {
-        println!("ignoring_store_while_cache_is_isolated");
-        return;
-    }
     let s = instruction.s();
     let t = instruction.t();
     let i = instruction.imm_se();
@@ -197,7 +193,7 @@ pub(super) fn op_sw(cpu: &mut Cpu, instruction: Instruction) {
 
     if addr % 4 == 0 {
         let v = cpu.reg(t);
-        cpu.store_32(addr, v);
+        cpu.store(addr, v);
     } else {
         cpu.exception(Exception::StoreAddressError);
     }
@@ -219,11 +215,6 @@ pub(super) fn op_jal(cpu: &mut Cpu, instruction: Instruction) {
 }
 
 pub(super) fn op_sh(cpu: &mut Cpu, instruction: Instruction) {
-    if cpu.sr & 0x10000 != 0 {
-        println!("ignoring_store_while_cache_is_isolated");
-        return;
-    }
-
     let s = instruction.s();
     let t = instruction.t();
     let i = instruction.imm_se();
@@ -232,7 +223,7 @@ pub(super) fn op_sh(cpu: &mut Cpu, instruction: Instruction) {
 
     if addr % 2 == 0 {
         let v = cpu.reg(t);
-        cpu.store_16(addr, v as u16);
+        cpu.store(addr, v as u16);
     } else {
         cpu.exception(StoreAddressError);
     }
@@ -250,11 +241,6 @@ pub(super) fn op_bne(cpu: &mut Cpu, instruction: Instruction) {
 }
 
 pub(super) fn op_sb(cpu: &mut Cpu, instruction: Instruction) {
-    if cpu.sr & 0x10000 != 0 {
-        println!("ignoring_store_while_cache_is_isolated");
-        return;
-    }
-
     let s = instruction.s();
     let t = instruction.t();
     let i = instruction.imm_se();
@@ -262,7 +248,7 @@ pub(super) fn op_sb(cpu: &mut Cpu, instruction: Instruction) {
     let addr = cpu.reg(s).wrapping_add(i);
     let v = cpu.reg(t);
 
-    cpu.store_8(addr, v as u8);
+    cpu.store(addr, v as u8);
 }
 
 pub(super) fn op_jr(cpu: &mut Cpu, instruction: Instruction) {
@@ -279,7 +265,8 @@ pub(super) fn op_lb(cpu: &mut Cpu, instruction: Instruction) {
 
     let addr = cpu.reg(s).wrapping_add(i);
 
-    let v = cpu.load_8(addr) as i8;
+    let v: u8 = cpu.load(addr);
+    let v = v as i8;
 
     cpu.load = (t, v as u32);
 }
@@ -349,7 +336,7 @@ pub(super) fn op_lbu(cpu: &mut Cpu, instruction: Instruction) {
 
     let addr = cpu.reg(s).wrapping_add(i);
 
-    let v = cpu.load_8(addr);
+    let v :u8 = cpu.load(addr);
 
     cpu.load = (t, v as u32);
 }
@@ -461,7 +448,7 @@ pub(super) fn op_lhu(cpu: &mut Cpu, instruction: Instruction) {
     let addr = cpu.reg(s).wrapping_add(i);
 
     if addr % 2 == 0 {
-        let v = cpu.load_16(addr);
+        let v: u16 = cpu.load(addr);
         cpu.load = (t, v as u32);
     } else {
         cpu.exception(Exception::LoadAddressError);
@@ -485,7 +472,8 @@ pub(super) fn op_lh(cpu: &mut Cpu, instruction: Instruction) {
 
     let addr = cpu.reg(s).wrapping_add(i);
 
-    let v = cpu.load_16(addr) as i16;
+    let v: u16 = cpu.load(addr);
+    let v = v as i16;
 
     cpu.load = (t, v as u32);
 }
@@ -594,7 +582,7 @@ pub(super) fn op_lwl(cpu: &mut Cpu, instruction: Instruction) {
     let cur_v = cpu.out_regs[t.0 as usize];
 
     let aligned_addr = addr & !3;
-    let aligned_word = cpu.load_32(aligned_addr);
+    let aligned_word = cpu.load(aligned_addr);
 
     let v = match addr & 3 {
         0 => (cur_v & 0x00ffffff) | (aligned_word << 24),
@@ -617,7 +605,7 @@ pub(super) fn op_lwr(cpu: &mut Cpu, instruction: Instruction) {
     let cur_v = cpu.out_regs[t.0 as usize];
 
     let aligned_addr = addr & !3;
-    let aligned_word = cpu.load_32(aligned_addr);
+    let aligned_word = cpu.load(aligned_addr);
 
     let v = match addr & 3 {
         3 => (cur_v & 0xff000000) | (aligned_word >> 24),
@@ -639,7 +627,7 @@ pub(super) fn op_swl(cpu: &mut Cpu, instruction: Instruction) {
     let v = cpu.reg(t);
 
     let aligned_addr = addr & !3;
-    let cur_mem = cpu.load_32(aligned_addr);
+    let cur_mem: u32 = cpu.load(aligned_addr);
 
     let mem = match addr & 3 {
         0 => (cur_mem & 0xffffff00) | (v >> 24),
@@ -649,7 +637,7 @@ pub(super) fn op_swl(cpu: &mut Cpu, instruction: Instruction) {
         _ => unreachable!(),
     };
 
-    cpu.store_32(aligned_addr, mem);
+    cpu.store(aligned_addr, mem);
 }
 
 pub(super) fn op_swr(cpu: &mut Cpu, instruction: Instruction) {
@@ -661,7 +649,7 @@ pub(super) fn op_swr(cpu: &mut Cpu, instruction: Instruction) {
     let v = cpu.reg(t);
 
     let aligned_addr = addr & !3;
-    let cur_mem = cpu.load_32(aligned_addr);
+    let cur_mem: u32 = cpu.load(aligned_addr);
 
     let mem = match addr & 3 {
         3 => (cur_mem & 0x00ffffff) | (v << 24),
@@ -671,7 +659,7 @@ pub(super) fn op_swr(cpu: &mut Cpu, instruction: Instruction) {
         _ => unreachable!(),
     };
 
-    cpu.store_32(aligned_addr, mem);
+    cpu.store(aligned_addr, mem);
 }
 
 // COP INSTRUCTIONS

@@ -2,6 +2,8 @@ use std::error::Error;
 use std::fs::File;
 use std::io::Read;
 
+use crate::interconnect::Addressable;
+
 
 const BIOS_SIZE: usize = 512 * 1024;
 
@@ -19,18 +21,15 @@ impl Bios {
         Ok(Bios { data })
     }
 
-    pub fn load_8(&self, offset: u32) -> u8 {
-        self.data[offset as usize]
-    }
-
-    pub fn load_32(&self, offset: u32) -> u32 {
+    pub fn load<T: Addressable>(&self, offset: u32) -> T {
         let offset = offset as usize;
 
-        let b0 = self.data[offset + 0] as u32;
-        let b1 = self.data[offset + 1] as u32;
-        let b2 = self.data[offset + 2] as u32;
-        let b3 = self.data[offset + 3] as u32;
+        let mut v = 0;
 
-        b0 | (b1 << 8) | (b2 << 16) | (b3 << 24)
+        for i in 0..T::width() as usize {
+            v |= (self.data[offset + i] as u32) << (i * 8)
+        }
+
+        Addressable::from_u32(v)
     }
 }

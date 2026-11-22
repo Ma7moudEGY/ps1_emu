@@ -1,3 +1,5 @@
+use crate::interconnect::Addressable;
+
 pub struct Ram {
     data: Vec<u8>
 }
@@ -10,55 +12,25 @@ impl Ram {
         }
     }
 
-    pub fn load_8(&self, offset: u32) -> u8 {
-        self.data[offset as usize]
-    }
-
-    pub fn load_16(&self, offset: u32) -> u16 {
+    pub fn load<T: Addressable>(&self, offset: u32) -> T {
         let offset = offset as usize;
 
-        let b0 = self.data[offset + 0] as u16;
-        let b1 = self.data[offset + 1] as u16;
+        let mut v = 0;
 
-        b0 | (b1 << 8)
+        for i in 0..T::width() as usize {
+            v |= (self.data[offset + i] as u32) << (i * 8)
+        }
+
+        Addressable::from_u32(v)
     }
 
-    pub fn load_32(&self, offset: u32) -> u32 {
+    pub fn store<T: Addressable>(&mut self, offset: u32, val: T) {
         let offset = offset as usize;
 
-        let b0 = self.data[offset + 0] as u32;
-        let b1 = self.data[offset + 1] as u32;
-        let b2 = self.data[offset + 2] as u32;
-        let b3 = self.data[offset + 3] as u32;
+        let val = val.as_u32();
 
-        b0 | (b1 << 8) | (b2 << 16) | (b3 << 24)
-    }
-
-    pub fn store_8(&mut self, offset: u32, val: u8) {
-        self.data[offset as usize] = val;
-    }
-
-    pub fn store_16(&mut self, offset: u32, val: u16) {
-        let offset = offset as usize;
-
-        let b0 = val as u8;
-        let b1 = (val >> 8) as u8;
-
-        self.data[offset + 0] = b0;
-        self.data[offset + 1] = b1;
-    }
-
-    pub fn store_32(&mut self, offset: u32, val: u32) {
-        let offset = offset as usize;
-
-        let b0 = val as u8;
-        let b1 = (val >> 8) as u8;
-        let b2 = (val >> 16) as u8;
-        let b3 = (val >> 24) as u8;
-
-        self.data[offset + 0] = b0;
-        self.data[offset + 1] = b1;
-        self.data[offset + 2] = b2;
-        self.data[offset + 3] = b3;
+        for i in 0..T::width() as usize {
+            self.data[offset + i] = (val >> (i * 8)) as u8;
+        }
     }
 }

@@ -19,111 +19,67 @@ impl Interconnect {
         }
     }
 
-    pub fn load_8(&self, addr: u32) -> u8 {
+    pub fn load<T: Addressable>(&self, addr: u32) -> T {
         let abs_addr = map::mask_region(addr);
-
-        if let Some(offset) = map::BIOS.contains(abs_addr) {
-            return self.bios.load_8(offset);
-        }
-
-        if let Some(_) = map::EXPANSION_1.contains(abs_addr) {
-            return 0xff;
-        }
 
         if let Some(offset) = map::RAM.contains(abs_addr) {
-            return self.ram.load_8(offset);
-        }
-
-        todo!("unhandled_load_8_at_address_{:08x}", addr);
-    }
-
-    pub fn load_16(&self, addr: u32) -> u16 {
-        let abs_addr = map::mask_region(addr);
-
-        if let Some(_) = map::SPU.contains(abs_addr) {
-            println!("unhandled_read_from_SPU_register_{:08x}", abs_addr);
-            return 0;
-        }
-
-        if let Some(offset) = map::RAM.contains(abs_addr) {
-            return self.ram.load_16(offset);
-        }
-
-        if let Some(offset) = map::IRQ_CONTROL.contains(abs_addr) {
-            println!("IRQ_CONTROL_read_{:x}", offset);
-            return 0;
-        }
-
-        panic!("unhandled_load_16_at_address_{:08x}", addr);
-    }
-
-    pub fn load_32(&self, addr: u32) -> u32 {
-        let abs_addr = map::mask_region(addr);
-
-        if addr % 4 != 0 {
-            panic!("unaligned_load_32_address_{:08x}", addr);
+            return self.ram.load(offset);
         }
 
         if let Some(offset) = map::BIOS.contains(abs_addr) {
-            return self.bios.load_32(offset);
+            return self.bios.load(offset);
         }
-
-        if let Some(offset) = map::RAM.contains(abs_addr) {
-            return self.ram.load_32(offset);
-        }
-
         if let Some(offset) = map::IRQ_CONTROL.contains(abs_addr) {
             println!("IRQ_CONTROL_read_{:x}", offset);
-            return 0;
+            return Addressable::from_u32(0);
         }
 
         if let Some(offset) = map::DMA.contains(abs_addr) {
-            return self.dma_reg(offset);
+            return Addressable::from_u32(self.dma_reg(offset));
         }
 
         if let Some(offset) = map::GPU.contains(abs_addr) {
             println!("GPU_read_{}", offset);
-
-            return match offset {
-                4 => self.gpu.status(),
-                _ => 0,
-            };
+            return self.gpu.load(offset);
         }
 
         if let Some(offset) = map::TIMERS.contains(abs_addr) {
             println!("unhandled_read_from_timer_register_{:x}", offset);
-            return 0;
+            return Addressable::from_u32(0);
+        }
+
+        if let Some(_) = map::SPU.contains(abs_addr) {
+            println!("unhandled_read_from_SPU_register_{:08x}", abs_addr);
+            return Addressable::from_u32(0);
+        }
+
+        if let Some(_) = map::EXPANSION_1.contains(abs_addr) {
+            return Addressable::from_u32(!0);
         }
 
         todo!("unhandled_load_32_at_address_{:08x}", addr);
+
     }
 
-    pub fn store_8(&mut self, addr: u32, val: u8) {
+    pub fn store<T: Addressable>(&mut self, addr: u32, val: T) {
         let abs_addr = map::mask_region(addr);
-
-        if let Some(offset) = map::EXPANSION_2.contains(abs_addr) {
-            println!("unhandled_write_to_EXPANSION_2_register_{:x}", offset);
-            return;
-        }
 
         if let Some(offset) = map::RAM.contains(abs_addr) {
-            self.ram.store_8(offset, val);
+            self.ram.store(offset, val);
             return;
         }
 
-        todo!("unhandled_store_8_address_{:08x}", addr);
-    }
-
-    pub fn store_16(&mut self, addr: u32, val: u16) {
-        if addr % 2 != 0 {
-            todo!("unaligned_store_16_address_{:08x}", addr);
+        if let Some(offset) = map::IRQ_CONTROL.contains(abs_addr) {
+            println!("IRQ_CONTROL:_{:x}_<-_{:08x}", offset, val.as_u32());
+            return;
         }
 
-        let abs_addr = map::mask_region(addr);
+        if let Some(offset) = map::DMA.contains(abs_addr) {
+            return self.set_dma_reg(offset, val);
+        }
 
-        if let Some(offset) = map::SPU.contains(abs_addr) {
-            println!("unhandled_write_to_SPU_register_{:x}", offset);
-            return;
+        if let Some(offset) = map::GPU.contains(abs_addr) {
+            return self.gpu.store(offset, val);
         }
 
         if let Some(offset) = map::TIMERS.contains(abs_addr) {
@@ -131,36 +87,27 @@ impl Interconnect {
             return;
         }
 
-        if let Some(offset) = map::RAM.contains(abs_addr) {
-            return self.ram.store_16(offset, val);
-        }
-
-        if let Some(offset) = map::IRQ_CONTROL.contains(abs_addr) {
-            println!("IRQ_CONTROL:_{:x}_<-_{:08x}", offset, val);
+        if let Some(offset) = map::SPU.contains(abs_addr) {
+            println!("unhandled_write_to_SPU_register_{:x}", offset);
             return;
         }
 
-        todo!("unhandled_store_16_address_{:08x}", addr);
-    }
-
-    pub fn store_32(&mut self, addr: u32, val: u32) {
-        let abs_addr = map::mask_region(addr);
-
-        if addr % 4 != 0 {
-            panic!("unaligned_store_32_address_{:08x}", addr);
+        if let Some(x) = map::CACHE_CONTROL.contains(abs_addr) {
+            println!("writing_{:08x}_to_cache_control", x);
+            return;
         }
 
         if let Some(offset) = map::SYS_CONTROL.contains(abs_addr) {
             match offset {
                 0 => {
-                    if val != 0x1f000000 {
-                        todo!("bad_expansion_1_base_address:_0x{:08x}", val);
+                    if val.as_u32() != 0x1f000000 {
+                        todo!("bad_expansion_1_base_address");
                     }
                 }
 
                 4 => {
-                    if val != 0x1f802000 {
-                        todo!("bad_expansion_2_base_address:_0x{:08x}", val);
+                    if val.as_u32() != 0x1f802000 {
+                        todo!("bad_expansion_2_base_address");
                     }
                 }
 
@@ -174,52 +121,22 @@ impl Interconnect {
             return;
         }
 
-        if let Some(offset) = map::RAM.contains(abs_addr) {
-            self.ram.store_32(offset, val);
+        if let Some(offset) = map::EXPANSION_2.contains(abs_addr) {
+            println!("unhandled_write_to_EXPANSION_2_register_{:x}", offset);
             return;
         }
 
-        if let Some(x) = map::SYS_CONTROL.contains(abs_addr) {
-            println!("writing_{:08x}_to_sys_control", x);
-            return;
-        }
-
-        if let Some(x) = map::CACHE_CONTROL.contains(abs_addr) {
-            println!("writing_{:08x}_to_cache_control", x);
-            return;
-        }
-
-        if let Some(offset) = map::IRQ_CONTROL.contains(abs_addr) {
-            println!("IRQ_CONTROL:_{:x}_<-_{:08x}", offset, val);
-            return;
-        }
-
-        if let Some(offset) = map::DMA.contains(abs_addr) {
-            return self.set_dma_reg(offset, val);
-        }
-
-        if let Some(offset) = map::GPU.contains(abs_addr) {
-            match offset {
-                0 => self.gpu.gp0(val),
-                4 => self.gpu.gp1(val),
-                _ => todo!("GPU_write_{}:{:08x}", offset, val),
-            }
-            return;
-        }
-
-        if let Some(offset) = map::TIMERS.contains(abs_addr) {
-            println!("uhandled_write_to_timer_register_{:x}", offset);
-            return;
-        }
-
-        todo!("unhandled_store_32_into_address_{:08x}:_{:08x}", addr, val);
+        todo!("unhandled_store_into_address_{:08x}:_{:08x}", addr, val.as_u32());
     }
 
-    fn dma_reg(&self, offset: u32) -> u32 {
+    fn dma_reg<T: Addressable>(&self, offset: u32) -> T {
+        if T::width() != AccessWidth::Word {
+            todo!("uhandled_DMA_read_at_{:x}", offset);
+        }
         let major = (offset & 0x70) >> 4;
         let minor = offset & 0xf;
 
-        match major {
+        let res = match major {
             0..=6 => {
                 let channel = self.dma.channel(Port::from_index(major));
 
@@ -238,12 +155,18 @@ impl Interconnect {
             },
 
             _ => todo!("uhandled_DMA_read_at_{:x}", offset),
-        }
+        };
+
+        Addressable::from_u32(res)
     }
 
-    fn set_dma_reg(&mut self, offset: u32, val: u32) {
+    fn set_dma_reg<T: Addressable>(&mut self, offset: u32, val: T) {
+        if T::width() != AccessWidth::Word {
+            todo!("uhandled_DMA_write_at_{:x}", offset)
+        }
         let major = (offset & 0x70) >> 4;
         let minor = offset & 0xf;
+        let val = val.as_u32();
 
         let active_port = match major {
             0..=6 => {
@@ -307,7 +230,7 @@ impl Interconnect {
 
             match channel.dir() {
                 Direction::FromRam => {
-                    let src_word = self.ram.load_32(cur_addr);
+                    let src_word = self.ram.load(cur_addr);
 
                     match port {
                         Port::Gpu => self.gpu.gp0(src_word),
@@ -323,7 +246,7 @@ impl Interconnect {
                         _ => todo!("unhandled_DMA_source_port_{}", port as u8)
                     };
 
-                    self.ram.store_32(cur_addr, src_word);
+                    self.ram.store(cur_addr, src_word);
                 }
             }
 
@@ -346,13 +269,13 @@ impl Interconnect {
         }
 
         loop {
-            let header = self.ram.load_32(addr);
+            let header: u32 = self.ram.load(addr);
             let mut remsz = header >> 24;
 
             while remsz > 0 {
                 addr = (addr + 4) & 0x1ffffc;
 
-                let command = self.ram.load_32(addr);
+                let command = self.ram.load(addr);
 
                 self.gpu.gp0(command);
 
@@ -422,4 +345,59 @@ mod map {
     pub const DMA: Range = Range(0x1f801080, 0x80);
 
     pub const GPU: Range = Range(0x1f801810, 0x8);
+}
+
+#[derive(PartialEq, Eq, Debug)]
+pub enum AccessWidth {
+    Byte= 1,
+    HalfWord = 2,
+    Word = 4,
+}
+
+pub trait Addressable {
+    fn width() -> AccessWidth;
+    fn from_u32(v: u32) -> Self;
+    fn as_u32(&self) -> u32;
+}
+
+impl Addressable for u8 {
+    fn width() -> AccessWidth {
+        AccessWidth::Byte
+    }
+
+    fn from_u32(v: u32) -> Self {
+        v as u8
+    }
+
+    fn as_u32(&self) -> u32 {
+        *self as u32
+    }
+}
+
+impl Addressable for u16 {
+    fn width() -> AccessWidth {
+        AccessWidth::HalfWord
+    }
+
+    fn from_u32(v: u32) -> Self {
+        v as u16
+    }
+
+    fn as_u32(&self) -> u32 {
+        *self as u32
+    }
+}
+
+impl Addressable for u32 {
+    fn width() -> AccessWidth {
+        AccessWidth::Word
+    }
+
+    fn from_u32(v: u32) -> Self {
+        v
+    }
+
+    fn as_u32(&self) -> u32 {
+        *self
+    }
 }

@@ -1,4 +1,4 @@
-use crate::frontend::video::{Color, Position, Renderer, Triangle};
+use crate::{frontend::video::{Color, Position, Renderer, Triangle}, interconnect::{AccessWidth, Addressable}};
 
 mod commands;
 mod renderer;
@@ -45,6 +45,7 @@ pub struct Gpu {
     gp0_command_method: fn(&mut Gpu),
     gp0_mode: Gp0Mode,
     pending_triangles: Vec<Triangle>,
+    read_word: u32,
 }
 
 impl Gpu {
@@ -91,6 +92,7 @@ impl Gpu {
             gp0_command_method: Gpu::gp0_nop,
             gp0_mode: Gp0Mode::Command,
             pending_triangles: vec![],
+            read_word: 0,
         }
     }
 
@@ -491,6 +493,38 @@ impl Gpu {
             x: p.x.wrapping_add(self.drawing_x_offset),
             y: p.y.wrapping_add(self.drawing_y_offset),
         }
+    }
+
+    fn read(&self) -> u32 {
+        self.read_word
+    }
+
+    pub fn load<T: Addressable>(&self, offset: u32) -> T {
+        if T::width() != AccessWidth::Word {
+            panic!("unhandled_{:?}_GPU_load", T::width());
+        }
+        
+        let r = match offset {
+                0 => self.read(),
+                4 => self.status(),
+                _ => unreachable!(),
+            };
+
+        Addressable::from_u32(r)
+    }
+
+    pub fn store<T: Addressable>(&mut self, offset: u32, val: T) {
+        if T::width() != AccessWidth::Word {
+            panic!("unhandled_{:?}_GPU_load", T::width());
+        }
+
+        let val = val.as_u32();
+
+        match offset {
+                0 => self.gp0(val),
+                4 => self.gp1(val),
+                _ => unreachable!(),
+            }
     }
 }
 
