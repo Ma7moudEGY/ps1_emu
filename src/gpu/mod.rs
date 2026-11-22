@@ -1,3 +1,5 @@
+use crate::frontend::video::{Position, Color, Triangle, Renderer};
+
 mod commands;
 mod renderer;
 
@@ -42,6 +44,7 @@ pub struct Gpu {
     gp0_words_remaining: u32,
     gp0_command_method: fn(&mut Gpu),
     gp0_mode: Gp0Mode,
+    pending_triangles: Vec<Triangle>,
 }
 
 impl Gpu {
@@ -87,8 +90,14 @@ impl Gpu {
             gp0_words_remaining: 0,
             gp0_command_method: Gpu::gp0_nop,
             gp0_mode: Gp0Mode::Command,
+            pending_triangles: vec![],
         }
     }
+
+    pub fn render(&mut self, renderer: &mut Renderer) {
+        renderer.display(&self.pending_triangles);
+        self.pending_triangles.clear();
+    }    
 
     pub fn status(&self) -> u32 {
         let mut r = 0u32;
@@ -275,7 +284,19 @@ impl Gpu {
     }
 
     fn gp0_triangle_shaded_opaque(&mut self) {
-        println!("Draw_triangle_shaded");
+        let positions = [
+            Position::from_gp0(self.gp0_command[1]),
+            Position::from_gp0(self.gp0_command[3]),
+            Position::from_gp0(self.gp0_command[5]),
+        ];
+
+        let colors = [
+            Color::from_gp0(self.gp0_command[0]),
+            Color::from_gp0(self.gp0_command[2]),
+            Color::from_gp0(self.gp0_command[4]),
+        ];
+
+        self.pending_triangles.push(Triangle { positions, colors });
     }
 
     fn gp0_quad_texture_blend_opaque(&mut self) {

@@ -368,6 +368,10 @@ impl Interconnect {
 
         channel.done();
     }
+
+    pub fn gpu_mut(&mut self) -> &mut Gpu {
+        &mut self.gpu
+    }
 }
 
 mod map {

@@ -165,4 +165,8 @@ impl Cpu {
         self.next_pc = self.pc.wrapping_add(4);
 
     }
+
+    pub fn interconnect_mut(&mut self) -> &mut Interconnect {
+        &mut self.inter
+    }
 }
