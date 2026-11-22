@@ -1,5 +1,9 @@
 use crate::{
-    dma::{Direction, Dma, Port, Step, Sync}, gpu::Gpu, interrupts::InterruptControl, memory::{Bios, Ram}, timers::Timers,
+    dma::{Direction, Dma, Port, Step, Sync},
+    gpu::Gpu,
+    interrupts::InterruptControl,
+    memory::{Bios, Ram},
+    timers::Timers,
 };
 
 pub struct Interconnect {
@@ -10,10 +14,18 @@ pub struct Interconnect {
     interrupt_control: InterruptControl,
     timers: Timers,
     prev_vblank: bool,
+    prev_dma_irq: bool,
 }
 
 impl Interconnect {
-    pub fn new(bios: Bios, ram: Ram, dma: Dma, gpu: Gpu, interrupt_control: InterruptControl, timers: Timers) -> Self {
+    pub fn new(
+        bios: Bios,
+        ram: Ram,
+        dma: Dma,
+        gpu: Gpu,
+        interrupt_control: InterruptControl,
+        timers: Timers,
+    ) -> Self {
         Interconnect {
             bios: bios,
             ram: ram,
@@ -21,7 +33,8 @@ impl Interconnect {
             gpu: gpu,
             interrupt_control: interrupt_control,
             timers: timers,
-            prev_vblank: false
+            prev_vblank: false,
+            prev_dma_irq: false,
         }
     }
 
@@ -36,7 +49,7 @@ impl Interconnect {
             return self.bios.load(offset);
         }
         if let Some(offset) = map::IRQ_CONTROL.contains(abs_addr) {
-            return self.interrupt_control.load(offset)
+            return self.interrupt_control.load(offset);
         }
 
         if let Some(offset) = map::DMA.contains(abs_addr) {
@@ -61,7 +74,6 @@ impl Interconnect {
         }
 
         todo!("unhandled_load_32_at_address_{:08x}", addr);
-
     }
 
     pub fn store<T: Addressable>(&mut self, addr: u32, val: T) {
@@ -127,7 +139,11 @@ impl Interconnect {
             return;
         }
 
-        todo!("unhandled_store_into_address_{:08x}:_{:08x}", addr, val.as_u32());
+        todo!(
+            "unhandled_store_into_address_{:08x}:_{:08x}",
+            addr,
+            val.as_u32()
+        );
     }
 
     fn dma_reg<T: Addressable>(&self, offset: u32) -> T {
@@ -181,10 +197,7 @@ impl Interconnect {
                     _ => todo!("uhandled_DMA_write_at_{:x}:_{:08x}", offset, val),
                 }
 
-                if channel.active() { 
-                    Some(port)
-                } else { 
-                    None }
+                if channel.active() { Some(port) } else { None }
             }
 
             7 => {
@@ -207,7 +220,7 @@ impl Interconnect {
     fn do_dma(&mut self, port: Port) {
         match self.dma.channel(port).sync() {
             Sync::LinkedList => self.do_dma_linked_list(port),
-            _                => self.do_dma_block(port),
+            _ => self.do_dma_block(port),
         }
     }
 
@@ -235,16 +248,16 @@ impl Interconnect {
 
                     match port {
                         Port::Gpu => self.gpu.gp0(src_word),
-                        _ => todo!("unhandled_DMA_destination_port_{}", port as u8)
+                        _ => todo!("unhandled_DMA_destination_port_{}", port as u8),
                     }
-                },
+                }
                 Direction::ToRam => {
                     let src_word = match port {
                         Port::Otc => match remsz {
                             1 => 0xffffff,
                             _ => addr.wrapping_sub(4) & 0x1fffff,
                         },
-                        _ => todo!("unhandled_DMA_source_port_{}", port as u8)
+                        _ => todo!("unhandled_DMA_source_port_{}", port as u8),
                     };
 
                     self.ram.store(cur_addr, src_word);
@@ -254,7 +267,7 @@ impl Interconnect {
             addr = addr.wrapping_add(increment);
             remsz -= 1;
         }
-        channel.done();
+        self.dma.complete(port);
     }
 
     fn do_dma_linked_list(&mut self, port: Port) {
@@ -290,7 +303,7 @@ impl Interconnect {
             addr = header & 0x1ffffc;
         }
 
-        channel.done();
+        self.dma.complete(port);
     }
 
     pub fn gpu_mut(&mut self) -> &mut Gpu {
@@ -305,12 +318,18 @@ impl Interconnect {
         }
         self.prev_vblank = self.gpu.in_vblank;
 
-        // let timer_irqs = self.timers.sync(cycles);
-        // for n in 0..3 {
-        //     if timer_irqs & (1 << n) != 0 {
-        //         self.interrupt_control.raise(4 + n);
-        //     }
-        // }
+        let timer_irqs = self.timers.sync(cycles);
+        for n in 0..3 {
+            if timer_irqs & (1 << n) != 0 {
+                self.interrupt_control.raise(4 + n);
+            }
+        }
+
+        let dma_irq = self.dma.irq();
+        if dma_irq && !self.prev_dma_irq {
+            self.interrupt_control.raise(3);
+        }
+        self.prev_dma_irq = dma_irq;
     }
 
     pub fn interrupt_pending(&self) -> bool {
@@ -370,7 +389,7 @@ mod map {
 
 #[derive(PartialEq, Eq, Debug)]
 pub enum AccessWidth {
-    Byte= 1,
+    Byte = 1,
     HalfWord = 2,
     Word = 4,
 }

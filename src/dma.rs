@@ -29,7 +29,7 @@ impl Dma {
         self.control = val;
     }
 
-    fn irq(&self) -> bool {
+    pub fn irq(&self) -> bool {
         let channel_irq = self.channel_irq_flags & self.channel_irq_en;
 
         self.force_irq || (self.irq_en && channel_irq != 0)
@@ -67,6 +67,15 @@ impl Dma {
 
     pub fn channel_mut(&mut self, port: Port) -> &mut Channel {
         &mut self.channels[port as usize]
+    }
+
+    pub fn complete(&mut self, port: Port) {
+        self.channel_mut(port).done();
+
+        let bit: u8 = 1 << (port as u8);
+        if self.channel_irq_en & bit != 0 {
+            self.channel_irq_flags |= bit;
+        }
     }
 }
 
