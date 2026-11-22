@@ -49,13 +49,13 @@ pub struct Gpu {
     gp0_words_remaining: u32,
     gp0_command_method: fn(&mut Gpu),
     gp0_mode: Gp0Mode,
-    pending_triangles: Vec<Triangle>,
     cycles: u32,
     scanline: u32,
     pub in_vblank: bool,
     frame: u32,
     vram: Box<[u16]>,
     transfer: RefCell<Transfer>,
+    pending_draws: Vec<PendingDraw>,
 }
 
 impl Gpu {
@@ -101,20 +101,23 @@ impl Gpu {
             gp0_words_remaining: 0,
             gp0_command_method: Gpu::gp0_nop,
             gp0_mode: Gp0Mode::Command,
-            pending_triangles: vec![],
             cycles: 0,
             scanline: 0,
             in_vblank: false,
             frame: 0,
             vram: vec![0u16; 1024 * 512].into_boxed_slice(),
             transfer: RefCell::new(Transfer::new()),
+            pending_draws: vec![],
         }
     }
 
     pub fn render(&mut self, renderer: &mut Renderer) {
-        for i in 0..self.pending_triangles.len() {
-            let tri = self.pending_triangles[i];
-            self.rasterize_triangle(&tri);
+        for i in 0..self.pending_draws.len() {
+            let draw = self.pending_draws[i];
+            match draw {
+                PendingDraw::Triangle(tri) => self.rasterize_triangle(&tri),
+                PendingDraw::Rect(rect) => self.rasterize_rect(rect),
+            }
         }
 
         renderer.display_vram(
@@ -124,7 +127,7 @@ impl Gpu {
             1024,
             512,
         );
-        self.pending_triangles.clear();
+        self.pending_draws.clear();
     }
 
     pub fn status(&self) -> u32 {
@@ -179,6 +182,10 @@ impl Gpu {
                 0x2c => (9, Gpu::gp0_quad_texture_blend_opaque as fn(&mut Gpu)),
                 0x30 => (6, Gpu::gp0_triangle_shaded_opaque as fn(&mut Gpu)),
                 0x38 => (8, Gpu::gp0_quad_shaded_opaque as fn(&mut Gpu)),
+                0x60 => (3, Gpu::gp0_rectangle as fn(&mut Gpu)),
+                0x68 => (2, Gpu::gp0_rectangle as fn(&mut Gpu)),
+                0x70 => (2, Gpu::gp0_rectangle as fn(&mut Gpu)),
+                0x78 => (2, Gpu::gp0_rectangle as fn(&mut Gpu)),
                 0xa0 => (3, Gpu::gp0_image_load as fn(&mut Gpu)),
                 0xc0 => (3, Gpu::gp0_image_store as fn(&mut Gpu)),
                 0xe1 => (1, Gpu::gp0_draw_mode as fn(&mut Gpu)),
@@ -305,14 +312,18 @@ impl Gpu {
         let colors_1 = [Color::from_gp0(self.gp0_command[0]); 3];
         let colors_2 = [Color::from_gp0(self.gp0_command[0]); 3];
 
-        self.pending_triangles.push(Triangle {
+        let tri_1 = Triangle {
             positions: positions_1,
             colors: colors_1,
-        });
-        self.pending_triangles.push(Triangle {
+        };
+
+        let tri_2 = Triangle {
             positions: positions_2,
             colors: colors_2,
-        });
+        };
+
+        self.pending_draws.push(PendingDraw::Triangle(tri_1));
+        self.pending_draws.push(PendingDraw::Triangle(tri_2));
     }
 
     fn gp0_clear_cache(&mut self) {
@@ -362,14 +373,18 @@ impl Gpu {
             Color::from_gp0(self.gp0_command[6]),
         ];
 
-        self.pending_triangles.push(Triangle {
+        let tri_1 = Triangle {
             positions: positions_1,
             colors: colors_1,
-        });
-        self.pending_triangles.push(Triangle {
+        };
+
+        let tri_2 = Triangle {
             positions: positions_2,
             colors: colors_2,
-        });
+        };
+
+        self.pending_draws.push(PendingDraw::Triangle(tri_1));
+        self.pending_draws.push(PendingDraw::Triangle(tri_2));
     }
 
     fn gp0_triangle_shaded_opaque(&mut self) {
@@ -386,7 +401,9 @@ impl Gpu {
             Color::from_gp0(self.gp0_command[4]),
         ];
 
-        self.pending_triangles.push(Triangle { positions, colors });
+        let tri = Triangle { positions, colors };
+
+        self.pending_draws.push(PendingDraw::Triangle(tri));
     }
 
     fn gp0_quad_texture_blend_opaque(&mut self) {
@@ -410,14 +427,18 @@ impl Gpu {
             b: 0x00,
         }; 3];
 
-        self.pending_triangles.push(Triangle {
+        let tri_1 = Triangle {
             positions: positions_1,
             colors,
-        });
-        self.pending_triangles.push(Triangle {
+        };
+
+        let tri_2 = Triangle {
             positions: positions_2,
             colors,
-        });
+        };
+
+        self.pending_draws.push(PendingDraw::Triangle(tri_1));
+        self.pending_draws.push(PendingDraw::Triangle(tri_2));
     }
 
     fn gp0_fill(&mut self) {
@@ -442,6 +463,59 @@ impl Gpu {
             for dx in 0..w {
                 let i = self.vram_index((x + dx) as u16, (y + dy) as u16);
                 self.vram[i] = color;
+            }
+        }
+    }
+
+    fn gp0_rectangle(&mut self) {
+        let cmd = self.gp0_command[0];
+        let siz = (cmd >> 27) & 3;
+        let pos = self.gp0_command[1];
+
+        let x = (pos & 0xffff) as i32 + self.drawing_x_offset as i32;
+        let y = (pos >> 16) as i32 + self.drawing_y_offset as i32;
+
+        let (w, h) = match siz {
+            0 => {
+                let size = self.gp0_command[2];
+                ((size & 0xffff) as i32, (size >> 16) as i32)
+            }
+            1 => (1, 1),
+            2 => (8, 8),
+            _ => (16, 16),
+        };
+
+        let color = (((cmd >> 3) & 0x1f)
+            | (((cmd >> 11) & 0x1f) << 5)
+            | (((cmd >> 19) & 0x1f) << 10)) as u16;
+
+        if w > 0 && h > 0 {
+            self.pending_draws
+                .push(PendingDraw::Rect(Rect { x, y, w, h, color }));
+        }
+    }
+
+    fn rasterize_rect(&mut self, rect: Rect) {
+        let x0 = rect.x.max(self.drawing_area_left as i32).max(0);
+        let y0 = rect.y.max(self.drawing_area_top as i32).max(0);
+        let x1 = (rect.x + rect.w - 1)
+            .min(self.drawing_area_right as i32)
+            .min(1023);
+        let y1 = (rect.y + rect.h - 1)
+            .min(self.drawing_area_bottom as i32)
+            .min(511);
+
+        if x0 > x1 || y0 > y1 {
+            return;
+        }
+
+        for y in y0..=y1 {
+            for x in x0..=x1 {
+                let i = self.vram_index(x as u16, y as u16);
+                if self.preserve_masked_pixels && self.vram[i] & 0x8000 != 0 {
+                    continue;
+                }
+                self.vram[i] = rect.color;
             }
         }
     }
@@ -903,4 +977,19 @@ impl Transfer {
         let y = (self.y as u32 + n / self.w as u32) & 0x1ff;
         (y as usize) * 1024 + x as usize
     }
+}
+
+#[derive(Clone, Copy)]
+struct Rect {
+    x: i32,
+    y: i32,
+    w: i32,
+    h: i32,
+    color: u16,
+}
+
+#[derive(Clone, Copy)]
+enum PendingDraw {
+    Triangle(Triangle),
+    Rect(Rect),
 }
