@@ -112,7 +112,18 @@ impl Gpu {
     }
 
     pub fn render(&mut self, renderer: &mut Renderer) {
-        renderer.display(&self.pending_triangles);
+        for i in 0..self.pending_triangles.len() {
+            let tri = self.pending_triangles[i];
+            self.rasterize_triangle(&tri);
+        }
+
+        renderer.display_vram(
+            &self.vram,
+            self.display_vram_x_start,
+            self.display_vram_y_start,
+            1024,
+            512,
+        );
         self.pending_triangles.clear();
     }
 
@@ -677,6 +688,86 @@ impl Gpu {
 
     fn advance_transfer(&self) {
         self.transfer.borrow_mut().index += 1;
+    }
+
+    fn edge(&self, ax: i32, ay: i32, bx: i32, by: i32, px: i32, py: i32) -> i32 {
+        (bx - ax) * (py - ay) - (by - ay) * (px - ax)
+    }
+
+    fn rasterize_triangle(&mut self, tri: &Triangle) {
+        let p = tri.positions.map(|v| (v.x as i32, v.y as i32));
+
+        let area = self.edge(p[0].0, p[0].1, p[1].0, p[1].1, p[2].0, p[2].1);
+        if area == 0 {
+            return;
+        }
+
+        // clip bounding box to drawing area and VRAM
+        let min_x = p
+            .iter()
+            .map(|v| v.0)
+            .min()
+            .unwrap()
+            .max(self.drawing_area_left as i32)
+            .max(0);
+        let max_x = p
+            .iter()
+            .map(|v| v.0)
+            .max()
+            .unwrap()
+            .min(self.drawing_area_right as i32)
+            .min(1023);
+        let min_y = p
+            .iter()
+            .map(|v| v.1)
+            .min()
+            .unwrap()
+            .max(self.drawing_area_top as i32)
+            .max(0);
+        let max_y = p
+            .iter()
+            .map(|v| v.1)
+            .max()
+            .unwrap()
+            .min(self.drawing_area_bottom as i32)
+            .min(511);
+
+        for y in min_y..=max_y {
+            for x in min_x..=max_x {
+                let w0 = self.edge(p[1].0, p[1].1, p[2].0, p[2].1, x, y);
+                let w1 = self.edge(p[2].0, p[2].1, p[0].0, p[0].1, x, y);
+                let w2 = self.edge(p[0].0, p[0].1, p[1].0, p[1].1, x, y);
+
+                let inside = if area > 0 {
+                    w0 >= 0 && w1 >= 0 && w2 >= 0
+                } else {
+                    w0 <= 0 && w1 <= 0 && w2 <= 0
+                };
+                if !inside {
+                    continue;
+                }
+
+                let r = (tri.colors[0].r as i64 * w0 as i64
+                    + tri.colors[1].r as i64 * w1 as i64
+                    + tri.colors[2].r as i64 * w2 as i64)
+                    / area as i64;
+                let g = (tri.colors[0].g as i64 * w0 as i64
+                    + tri.colors[1].g as i64 * w1 as i64
+                    + tri.colors[2].g as i64 * w2 as i64)
+                    / area as i64;
+                let b = (tri.colors[0].b as i64 * w0 as i64
+                    + tri.colors[1].b as i64 * w1 as i64
+                    + tri.colors[2].b as i64 * w2 as i64)
+                    / area as i64;
+
+                let color = (((r as u16 >> 3) & 0x1f)
+                    | (((g as u16 >> 3) & 0x1f) << 5)
+                    | (((b as u16 >> 3) & 0x1f) << 10)) as u16;
+
+                let i = self.vram_index(x as u16, y as u16);
+                self.vram[i] = color;
+            }
+        }
     }
 }
 

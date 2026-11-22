@@ -23,6 +23,13 @@ pub struct Renderer {
     vao: glow::VertexArray,
     position_buffer: glow::Buffer,
     color_buffer: glow::Buffer,
+    vram_program: glow::Program,
+    vram_vao: glow::VertexArray,
+    vram_texture: glow::Texture,
+    vram_buffer: glow::Buffer,
+    vram_location: Option<glow::UniformLocation>,
+    src_offset_location: Option<glow::UniformLocation>,
+    src_size_location: Option<glow::UniformLocation>,
 }
 
 impl Renderer {
@@ -101,7 +108,81 @@ impl Renderer {
             gl.viewport(0, 0, size.width as i32, size.height as i32);
         }
 
+        let vram_vertex = compile_shader(&gl, include_str!("vram.vert"), glow::VERTEX_SHADER);
+        let vram_fragment = compile_shader(&gl, include_str!("vram.frag"), glow::FRAGMENT_SHADER);
+        let vram_program = link_program(&gl, &[vram_vertex, vram_fragment]);
+
+        let vram_vao;
+        let vram_buffer;
+        let vram_texture;
+        let vram_location;
+        let src_offset_location;
+        let src_size_location;
+
         unsafe {
+            gl.detach_shader(vram_program, vram_vertex);
+            gl.delete_shader(vram_vertex);
+            gl.detach_shader(vram_program, vram_fragment);
+            gl.delete_shader(vram_fragment);
+
+            gl.use_program(Some(vram_program));
+
+            vram_location = gl.get_uniform_location(vram_program, "vram");
+            src_offset_location = gl.get_uniform_location(vram_program, "src_offset");
+            src_size_location = gl.get_uniform_location(vram_program, "src_size");
+            gl.uniform_1_i32(vram_location.as_ref(), 0);
+
+            vram_vao = gl.create_vertex_array().expect("failed_to_create_vram_vao");
+            gl.bind_vertex_array(Some(vram_vao));
+
+            vram_buffer = gl.create_buffer().expect("failed_to_create_vram_buffer");
+            gl.bind_buffer(glow::ARRAY_BUFFER, Some(vram_buffer));
+            gl.enable_vertex_attrib_array(0);
+            gl.vertex_attrib_pointer_f32(0, 2, glow::FLOAT, false, 0, 0);
+
+            let quad: [f32; 12] = [
+                -1.0, -1.0, 1.0, -1.0, -1.0, 1.0, -1.0, 1.0, 1.0, -1.0, 1.0, 1.0,
+            ];
+            gl.buffer_data_u8_slice(glow::ARRAY_BUFFER, as_bytes(&quad), glow::STATIC_DRAW);
+
+            vram_texture = gl.create_texture().expect("failed_to_create_vram_texture");
+            gl.bind_texture(glow::TEXTURE_2D, Some(vram_texture));
+            gl.tex_image_2d(
+                glow::TEXTURE_2D,
+                0,
+                glow::RGBA8 as i32,
+                1024,
+                512,
+                0,
+                glow::RGBA,
+                glow::UNSIGNED_BYTE,
+                glow::PixelUnpackData::Slice(None),
+            );
+            gl.tex_parameter_i32(
+                glow::TEXTURE_2D,
+                glow::TEXTURE_MIN_FILTER,
+                glow::NEAREST as i32,
+            );
+            gl.tex_parameter_i32(
+                glow::TEXTURE_2D,
+                glow::TEXTURE_MAG_FILTER,
+                glow::NEAREST as i32,
+            );
+            gl.tex_parameter_i32(
+                glow::TEXTURE_2D,
+                glow::TEXTURE_WRAP_S,
+                glow::CLAMP_TO_EDGE as i32,
+            );
+            gl.tex_parameter_i32(
+                glow::TEXTURE_2D,
+                glow::TEXTURE_WRAP_T,
+                glow::CLAMP_TO_EDGE as i32,
+            );
+        }
+
+        unsafe {
+            let size = window.inner_size();
+            gl.viewport(0, 0, size.width as i32, size.height as i32);
             gl.clear_color(0.0, 0.0, 0.0, 1.0);
             gl.clear(glow::COLOR_BUFFER_BIT);
         }
@@ -115,6 +196,13 @@ impl Renderer {
             vao,
             position_buffer,
             color_buffer,
+            vram_program,
+            vram_vao,
+            vram_buffer,
+            vram_texture,
+            vram_location,
+            src_offset_location,
+            src_size_location,
         })
     }
 
@@ -148,11 +236,7 @@ impl Renderer {
                 .draw_arrays(glow::TRIANGLES, 0, positions.len() as i32);
         }
 
-        self.window.pre_present_notify();
-
-        self.surface
-            .swap_buffers(&self.context)
-            .expect("failed_to_swap_buffers");
+        self.present();
     }
 
     pub fn resize(&self) {
@@ -167,6 +251,53 @@ impl Renderer {
 
     pub fn request_redraw(&self) {
         self.window.request_redraw();
+    }
+
+    pub fn display_vram(&mut self, vram: &[u16], src_x: u16, src_y: u16, w: u32, h: u32) {
+        let mut rgba = vec![0u8; 1024 * 512 * 4];
+        for (i, &p) in vram.iter().enumerate() {
+            let o = i * 4;
+            rgba[o] = ((p & 0x1f) << 3) as u8;
+            rgba[o + 1] = (((p >> 5) & 0x1f) << 3) as u8;
+            rgba[o + 2] = (((p >> 10) & 0x1f) << 3) as u8;
+            rgba[o + 3] = 255;
+        }
+
+        unsafe {
+            self.gl
+                .bind_texture(glow::TEXTURE_2D, Some(self.vram_texture));
+            self.gl.tex_sub_image_2d(
+                glow::TEXTURE_2D,
+                0,
+                0,
+                0,
+                1024,
+                512,
+                glow::RGBA,
+                glow::UNSIGNED_BYTE,
+                glow::PixelUnpackData::Slice(Some(&rgba)),
+            );
+
+            self.gl.use_program(Some(self.vram_program));
+            self.gl.bind_vertex_array(Some(self.vram_vao));
+            self.gl.uniform_2_f32(
+                self.src_offset_location.as_ref(),
+                src_x as f32,
+                src_y as f32,
+            );
+            self.gl
+                .uniform_2_f32(self.src_size_location.as_ref(), w as f32, h as f32);
+            self.gl.draw_arrays(glow::TRIANGLES, 0, 6);
+        }
+
+        self.present();
+    }
+
+    fn present(&self) {
+        self.window.pre_present_notify();
+        self.surface
+            .swap_buffers(&self.context)
+            .expect("failed_to_swap_buffers");
     }
 }
 
