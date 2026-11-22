@@ -1,4 +1,7 @@
-use crate::{frontend::video::{Color, Position, Renderer, Triangle}, interconnect::{AccessWidth, Addressable}};
+use crate::{
+    frontend::video::{Color, Position, Renderer, Triangle},
+    interconnect::{AccessWidth, Addressable},
+};
 
 mod commands;
 mod renderer;
@@ -46,6 +49,10 @@ pub struct Gpu {
     gp0_mode: Gp0Mode,
     pending_triangles: Vec<Triangle>,
     read_word: u32,
+    cycles: u32,
+    scanline: u32,
+    in_vblank: bool,
+    frame: u32,
 }
 
 impl Gpu {
@@ -93,6 +100,10 @@ impl Gpu {
             gp0_mode: Gp0Mode::Command,
             pending_triangles: vec![],
             read_word: 0,
+            cycles: 0,
+            scanline: 0,
+            in_vblank: false,
+            frame: 0,
         }
     }
 
@@ -127,6 +138,7 @@ impl Gpu {
         r |= 1 << 28;
 
         r |= (self.dma_dir as u32) << 29;
+        r |= (self.in_vblank as u32) << 31;
 
         let dma_request = match self.dma_dir {
             DmaDirection::Off => 0,
@@ -254,19 +266,27 @@ impl Gpu {
             Position::from_gp0(self.gp0_command[1]),
             Position::from_gp0(self.gp0_command[2]),
             Position::from_gp0(self.gp0_command[3]),
-        ].map(|p| self.apply_draw_offset(p));
+        ]
+        .map(|p| self.apply_draw_offset(p));
 
         let positions_2 = [
             Position::from_gp0(self.gp0_command[2]),
             Position::from_gp0(self.gp0_command[3]),
             Position::from_gp0(self.gp0_command[4]),
-        ].map(|p| self.apply_draw_offset(p));
+        ]
+        .map(|p| self.apply_draw_offset(p));
 
         let colors_1 = [Color::from_gp0(self.gp0_command[0]); 3];
         let colors_2 = [Color::from_gp0(self.gp0_command[0]); 3];
 
-        self.pending_triangles.push(Triangle { positions: positions_1, colors: colors_1 });
-        self.pending_triangles.push(Triangle { positions: positions_2, colors: colors_2 });
+        self.pending_triangles.push(Triangle {
+            positions: positions_1,
+            colors: colors_1,
+        });
+        self.pending_triangles.push(Triangle {
+            positions: positions_2,
+            colors: colors_2,
+        });
     }
 
     fn gp0_clear_cache(&mut self) {
@@ -302,13 +322,15 @@ impl Gpu {
             Position::from_gp0(self.gp0_command[1]),
             Position::from_gp0(self.gp0_command[3]),
             Position::from_gp0(self.gp0_command[5]),
-        ].map(|p| self.apply_draw_offset(p));
+        ]
+        .map(|p| self.apply_draw_offset(p));
 
         let positions_2 = [
             Position::from_gp0(self.gp0_command[3]),
             Position::from_gp0(self.gp0_command[5]),
             Position::from_gp0(self.gp0_command[7]),
-        ].map(|p| self.apply_draw_offset(p));
+        ]
+        .map(|p| self.apply_draw_offset(p));
 
         let colors_1 = [
             Color::from_gp0(self.gp0_command[0]),
@@ -322,8 +344,14 @@ impl Gpu {
             Color::from_gp0(self.gp0_command[6]),
         ];
 
-        self.pending_triangles.push(Triangle { positions: positions_1, colors: colors_1 });
-        self.pending_triangles.push(Triangle { positions: positions_2, colors: colors_2 });
+        self.pending_triangles.push(Triangle {
+            positions: positions_1,
+            colors: colors_1,
+        });
+        self.pending_triangles.push(Triangle {
+            positions: positions_2,
+            colors: colors_2,
+        });
     }
 
     fn gp0_triangle_shaded_opaque(&mut self) {
@@ -331,7 +359,8 @@ impl Gpu {
             Position::from_gp0(self.gp0_command[1]),
             Position::from_gp0(self.gp0_command[3]),
             Position::from_gp0(self.gp0_command[5]),
-        ].map(|p| self.apply_draw_offset(p));
+        ]
+        .map(|p| self.apply_draw_offset(p));
 
         let colors = [
             Color::from_gp0(self.gp0_command[0]),
@@ -347,13 +376,15 @@ impl Gpu {
             Position::from_gp0(self.gp0_command[1]),
             Position::from_gp0(self.gp0_command[3]),
             Position::from_gp0(self.gp0_command[5]),
-        ].map(|p| self.apply_draw_offset(p));
+        ]
+        .map(|p| self.apply_draw_offset(p));
 
         let positions_2 = [
             Position::from_gp0(self.gp0_command[3]),
             Position::from_gp0(self.gp0_command[5]),
             Position::from_gp0(self.gp0_command[7]),
-        ].map(|p| self.apply_draw_offset(p));
+        ]
+        .map(|p| self.apply_draw_offset(p));
 
         let colors = [Color {
             r: 0x80,
@@ -361,8 +392,14 @@ impl Gpu {
             b: 0x00,
         }; 3];
 
-        self.pending_triangles.push(Triangle { positions: positions_1, colors });
-        self.pending_triangles.push(Triangle { positions: positions_2, colors });
+        self.pending_triangles.push(Triangle {
+            positions: positions_1,
+            colors,
+        });
+        self.pending_triangles.push(Triangle {
+            positions: positions_2,
+            colors,
+        });
     }
 
     pub fn gp1(&mut self, val: u32) {
@@ -503,12 +540,12 @@ impl Gpu {
         if T::width() != AccessWidth::Word {
             panic!("unhandled_{:?}_GPU_load", T::width());
         }
-        
+
         let r = match offset {
-                0 => self.read(),
-                4 => self.status(),
-                _ => unreachable!(),
-            };
+            0 => self.read(),
+            4 => self.status(),
+            _ => unreachable!(),
+        };
 
         Addressable::from_u32(r)
     }
@@ -521,10 +558,42 @@ impl Gpu {
         let val = val.as_u32();
 
         match offset {
-                0 => self.gp0(val),
-                4 => self.gp1(val),
-                _ => unreachable!(),
+            0 => self.gp0(val),
+            4 => self.gp1(val),
+            _ => unreachable!(),
+        }
+    }
+
+    pub fn sync(&mut self, cycles: u32) {
+        self.cycles += cycles;
+
+        let scanline_limit = match self.vmode {
+            VMode::Ntsc => SCANLINE_PER_NTSC,
+            VMode::Pal => SCANLINE_PER_PAL,
+        };
+        let vblank_start = scanline_limit - 22;
+
+        while self.cycles >= CYCLES_PER_SCANLINE {
+            self.cycles -= CYCLES_PER_SCANLINE;
+            self.scanline += 1;
+
+            if self.scanline >= scanline_limit {
+                self.scanline = 0;
+                self.frame = self.frame.wrapping_add(1);
             }
+
+            if self.interlaced {
+                self.field = if self.frame % 2 == 0 {
+                    Field::Top
+                } else {
+                    Field::Bottom
+                };
+            } else {
+                self.field = Field::Top;
+            }
+        }
+
+        self.in_vblank = self.scanline >= vblank_start;
     }
 }
 
@@ -569,6 +638,10 @@ enum VMode {
     Ntsc = 0,
     Pal = 1,
 }
+
+const SCANLINE_PER_NTSC: u32 = 263;
+const SCANLINE_PER_PAL: u32 = 314;
+const CYCLES_PER_SCANLINE: u32 = 2147;
 
 #[derive(Clone, Copy)]
 enum DisplayDepth {

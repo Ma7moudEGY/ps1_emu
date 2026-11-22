@@ -297,7 +297,7 @@ impl Interconnect {
     }
 
     pub fn sync(&mut self, cycles: u32) {
-        
+        self.gpu.sync(cycles);
     }
 }
 
