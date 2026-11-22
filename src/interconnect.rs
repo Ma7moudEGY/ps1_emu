@@ -1,5 +1,5 @@
 use crate::{
-    dma::{Direction, Dma, Port, Step, Sync}, gpu::Gpu, interrupts::InterruptControl, memory::{Bios, Ram},
+    dma::{Direction, Dma, Port, Step, Sync}, gpu::Gpu, interrupts::InterruptControl, memory::{Bios, Ram}, timers::Timers,
 };
 
 pub struct Interconnect {
@@ -8,17 +8,19 @@ pub struct Interconnect {
     dma: Dma,
     gpu: Gpu,
     interrupt_control: InterruptControl,
+    timers: Timers,
     prev_vblank: bool,
 }
 
 impl Interconnect {
-    pub fn new(bios: Bios, ram: Ram, dma: Dma, gpu: Gpu, interrupt_control: InterruptControl) -> Self {
+    pub fn new(bios: Bios, ram: Ram, dma: Dma, gpu: Gpu, interrupt_control: InterruptControl, timers: Timers) -> Self {
         Interconnect {
             bios: bios,
             ram: ram,
             dma: dma,
             gpu: gpu,
             interrupt_control: interrupt_control,
+            timers: timers,
             prev_vblank: false
         }
     }
@@ -42,17 +44,15 @@ impl Interconnect {
         }
 
         if let Some(offset) = map::GPU.contains(abs_addr) {
-            println!("GPU_read_{}", offset);
             return self.gpu.load(offset);
         }
 
         if let Some(offset) = map::TIMERS.contains(abs_addr) {
-            println!("unhandled_read_from_timer_register_{:x}", offset);
-            return Addressable::from_u32(0);
+            return self.timers.load(offset);
         }
 
         if let Some(_) = map::SPU.contains(abs_addr) {
-            println!("unhandled_read_from_SPU_register_{:08x}", abs_addr);
+            // println!("unhandled_read_from_SPU_register_{:08x}", abs_addr);
             return Addressable::from_u32(0);
         }
 
@@ -85,12 +85,11 @@ impl Interconnect {
         }
 
         if let Some(offset) = map::TIMERS.contains(abs_addr) {
-            println!("uhandled_write_to_timer_register_{:x}", offset);
-            return;
+            return self.timers.store(offset, val);
         }
 
         if let Some(offset) = map::SPU.contains(abs_addr) {
-            println!("unhandled_write_to_SPU_register_{:x}", offset);
+            // println!("unhandled_write_to_SPU_register_{:x}", offset);
             return;
         }
 
@@ -305,6 +304,13 @@ impl Interconnect {
             self.interrupt_control.raise(0);
         }
         self.prev_vblank = self.gpu.in_vblank;
+
+        // let timer_irqs = self.timers.sync(cycles);
+        // for n in 0..3 {
+        //     if timer_irqs & (1 << n) != 0 {
+        //         self.interrupt_control.raise(4 + n);
+        //     }
+        // }
     }
 
     pub fn interrupt_pending(&self) -> bool {

@@ -3,8 +3,8 @@ use crate::{
     interconnect::{Addressable, Interconnect},
 };
 use exception::Exception;
-use instruction::Instruction;
 use icache::ICacheLine;
+use instruction::Instruction;
 
 mod decode;
 mod exception;
@@ -141,7 +141,10 @@ impl Cpu {
 
     fn fetch_instruction(&mut self, addr: u32) -> (Instruction, u32) {
         if addr & 0xe0000000 != 0x80000000 {
-            return (decode(Instruction::new(self.inter.load(addr))), NORMAL_FETCH);
+            return (
+                decode(Instruction::new(self.inter.load(addr))),
+                NORMAL_FETCH,
+            );
         }
 
         let line_index = ((addr >> 4) & 0xff) as usize;
