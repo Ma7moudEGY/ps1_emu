@@ -1,3 +1,5 @@
+use std::cell::RefCell;
+
 use crate::{
     frontend::video::{Color, Position, Renderer, Triangle},
     interconnect::{AccessWidth, Addressable},
@@ -48,11 +50,12 @@ pub struct Gpu {
     gp0_command_method: fn(&mut Gpu),
     gp0_mode: Gp0Mode,
     pending_triangles: Vec<Triangle>,
-    read_word: u32,
     cycles: u32,
     scanline: u32,
     pub in_vblank: bool,
     frame: u32,
+    vram: Box<[u16]>,
+    transfer: RefCell<Transfer>,
 }
 
 impl Gpu {
@@ -99,11 +102,12 @@ impl Gpu {
             gp0_command_method: Gpu::gp0_nop,
             gp0_mode: Gp0Mode::Command,
             pending_triangles: vec![],
-            read_word: 0,
             cycles: 0,
             scanline: 0,
             in_vblank: false,
             frame: 0,
+            vram: vec![0u16; 1024 * 512].into_boxed_slice(),
+            transfer: RefCell::new(Transfer::new()),
         }
     }
 
@@ -159,6 +163,7 @@ impl Gpu {
             let (len, method) = match opcode {
                 0x00 => (1, Gpu::gp0_nop as fn(&mut Gpu)),
                 0x01 => (1, Gpu::gp0_clear_cache as fn(&mut Gpu)),
+                0x02 => (3, Gpu::gp0_fill as fn(&mut Gpu)),
                 0x28 => (5, Gpu::gp0_quad_mono_opaque as fn(&mut Gpu)),
                 0x2c => (9, Gpu::gp0_quad_texture_blend_opaque as fn(&mut Gpu)),
                 0x30 => (6, Gpu::gp0_triangle_shaded_opaque as fn(&mut Gpu)),
@@ -191,6 +196,16 @@ impl Gpu {
                 }
             }
             Gp0Mode::ImageLoad => {
+                if let Some(offset) = self.transfer_offset() {
+                    self.vram[offset] = val as u16;
+                }
+                self.advance_transfer();
+
+                if let Some(offset) = self.transfer_offset() {
+                    self.vram[offset] = (val >> 16) as u16;
+                }
+                self.advance_transfer();
+
                 if self.gp0_words_remaining == 0 {
                     self.gp0_mode = Gp0Mode::Command;
                 }
@@ -294,27 +309,19 @@ impl Gpu {
     }
 
     fn gp0_image_load(&mut self) {
-        let res = self.gp0_command[2];
+        let pos = self.gp0_command[1];
+        let size = self.gp0_command[2];
 
-        let width = res & 0xffff;
-        let height = res >> 16;
-
-        let img_size = width * height;
-
-        let img_size = (img_size + 1) & !1;
-
-        self.gp0_words_remaining = img_size / 2;
-
+        self.start_transfer(pos, size);
+        self.gp0_words_remaining = self.transfer.borrow().total / 2;
         self.gp0_mode = Gp0Mode::ImageLoad;
     }
 
     fn gp0_image_store(&mut self) {
-        let res = self.gp0_command[2];
+        let pos = self.gp0_command[1];
+        let size = self.gp0_command[2];
 
-        let width = res & 0xffff;
-        let height = res >> 16;
-
-        println!("image_store_:_{}x{}", width, height);
+        self.start_transfer(pos, size);
     }
 
     fn gp0_quad_shaded_opaque(&mut self) {
@@ -400,6 +407,32 @@ impl Gpu {
             positions: positions_2,
             colors,
         });
+    }
+
+    fn gp0_fill(&mut self) {
+        let color = self.gp0_command[0];
+        let color = (((color >> 3) & 0x1f)
+            | (((color >> 11) & 0x1f) << 5)
+            | (((color >> 19) & 0x1f) << 10)) as u16;
+
+        let pos = self.gp0_command[1];
+        let size = self.gp0_command[2];
+
+        let x = pos & 0x3f0;
+        let y = (pos >> 16) & 0x1ff;
+        let w = ((size & 0x3ff) + 0xf) & !0xf;
+        let h = (size >> 16) & 0x1ff;
+
+        if w == 0 || h == 0 {
+            return;
+        }
+
+        for dy in 0..h {
+            for dx in 0..w {
+                let i = self.vram_index((x + dx) as u16, (y + dy) as u16);
+                self.vram[i] = color;
+            }
+        }
     }
 
     pub fn gp1(&mut self, val: u32) {
@@ -533,7 +566,25 @@ impl Gpu {
     }
 
     fn read(&self) -> u32 {
-        self.read_word
+        let lo = match self.transfer_offset() {
+            Some(i) => {
+                let v = self.vram[i] as u32;
+                self.advance_transfer();
+                v
+            }
+            None => 0,
+        };
+
+        let hi = match self.transfer_offset() {
+            Some(i) => {
+                let v = self.vram[i] as u32;
+                self.advance_transfer();
+                v
+            }
+            None => 0,
+        };
+
+        lo | (hi << 16)
     }
 
     pub fn load<T: Addressable>(&self, offset: u32) -> T {
@@ -594,6 +645,38 @@ impl Gpu {
         }
 
         self.in_vblank = self.scanline >= vblank_start;
+    }
+
+    fn vram_index(&self, x: u16, y: u16) -> usize {
+        ((y & 0x1ff) as usize) * 1024 + (x & 0x3ff) as usize
+    }
+
+    fn start_transfer(&self, pos: u32, size: u32) {
+        let mut t = self.transfer.borrow_mut();
+
+        t.x = (pos & 0x3ff) as u16;
+        t.y = ((pos >> 16) & 0x1ff) as u16;
+
+        let sw = size & 0x3ff;
+        let sh = (size >> 16) & 0x1ff;
+        t.w = (if sw == 0 { 0x400 } else { sw }) as u16;
+        let h = if sh == 0 { 0x200 } else { sh };
+
+        t.total = (t.w as u32 * h + 1) & !1;
+        t.index = 0;
+    }
+
+    fn transfer_offset(&self) -> Option<usize> {
+        let t = self.transfer.borrow();
+        if t.index < t.total {
+            Some(t.offset())
+        } else {
+            None
+        }
+    }
+
+    fn advance_transfer(&self) {
+        self.transfer.borrow_mut().index += 1;
     }
 }
 
@@ -700,5 +783,33 @@ impl ::std::ops::Index<usize> for CommandBuffer {
         }
 
         &self.buffer[index]
+    }
+}
+
+#[derive(Clone, Copy)]
+struct Transfer {
+    x: u16,
+    y: u16,
+    w: u16,
+    total: u32,
+    index: u32,
+}
+
+impl Transfer {
+    pub fn new() -> Self {
+        Transfer {
+            x: 0,
+            y: 0,
+            w: 1,
+            total: 0,
+            index: 0,
+        }
+    }
+
+    fn offset(&self) -> usize {
+        let n = self.index;
+        let x = (self.x as u32 + n % self.w as u32) & 0x3ff;
+        let y = (self.y as u32 + n / self.w as u32) & 0x1ff;
+        (y as usize) * 1024 + x as usize
     }
 }
