@@ -295,6 +295,10 @@ impl Interconnect {
     pub fn gpu_mut(&mut self) -> &mut Gpu {
         &mut self.gpu
     }
+
+    pub fn sync(&mut self, cycles: u32) {
+        
+    }
 }
 
 mod map {

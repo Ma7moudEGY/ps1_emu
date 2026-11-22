@@ -14,6 +14,9 @@ mod ops;
 
 type Op = fn(&mut Cpu, Instruction);
 
+const CACHE_HIT: u32 = 1;
+const NORMAL_FETCH: u32 = 4;
+
 #[derive(Clone, Copy)]
 pub struct RegisterIndex(u32);
 
@@ -71,15 +74,16 @@ impl Cpu {
         self.out_regs[0] = 0;
     }
 
-    pub fn run_next_instruction(&mut self) {
+    pub fn run_next_instruction(&mut self) -> u32 {
         self.current_pc = self.pc;
 
         if self.current_pc % 4 != 0 {
             self.exception(LoadAddressError);
-            return;
+            self.inter.sync(1);
+            return 1;
         }
 
-        let instruction = self.fetch_instruction(self.pc);
+        let (instruction, cycles) = self.fetch_instruction(self.pc);
 
         self.pc = self.next_pc;
         self.next_pc = self.next_pc.wrapping_add(4);
@@ -95,6 +99,9 @@ impl Cpu {
         self.execute(instruction);
 
         self.regs = self.out_regs;
+        self.inter.sync(cycles + 1);
+
+        cycles + 1
     }
 
     fn branch(&mut self, offset: u32) {
@@ -126,9 +133,9 @@ impl Cpu {
         self.inter.store(addr, val)
     }
 
-    fn fetch_instruction(&mut self, addr: u32) -> Instruction {
+    fn fetch_instruction(&mut self, addr: u32) -> (Instruction, u32) {
         if addr & 0xe0000000 != 0x80000000 {
-            return decode(Instruction::new(self.inter.load(addr)));
+            return (decode(Instruction::new(self.inter.load(addr))), NORMAL_FETCH);
         }
 
         let line_index = ((addr >> 4) & 0xff) as usize;
@@ -137,19 +144,21 @@ impl Cpu {
         let line = &mut self.icache[line_index];
 
         if line.tag() == tag && line.valid(word_index) {
-            return line.instruction(word_index);
+            return (line.instruction(word_index), CACHE_HIT);
         }
 
         line.set_tag_valid(tag);
 
+        let mut cycles = 1;
         let base = addr & !0xf;
         for i in word_index..4 {
             let raw = self.inter.load(base + (i << 2));
             line.set_instruction(i, decode(Instruction::new(raw)));
             line.set_valid(i);
+            cycles += 1;
         }
 
-        line.instruction(word_index)
+        (line.instruction(word_index), cycles)
     }
 
     fn read_word(&self, addr: u32) -> u32 {

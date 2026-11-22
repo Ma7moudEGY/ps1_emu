@@ -13,7 +13,7 @@ mod interrupts;
 mod memory;
 mod timers;
 
-const INSTRUCTION_PER_FRAME: u32 = 33868800 / 60;
+const CYCLES_PER_FRAME: u32 = 33868800 / 60;
 
 #[macro_export]
 macro_rules! trace {
@@ -27,12 +27,22 @@ macro_rules! trace {
 struct App {
     cpu: cpu::Cpu,
     renderer: Option<Renderer>,
+    cycles: u32,
 }
 
 impl App {
     fn run_frame(&mut self) {
-        for _ in 0..INSTRUCTION_PER_FRAME {
-            self.cpu.run_next_instruction();
+        self.cycles = 0;
+        let mut instructions = 0u32;
+
+        while self.cycles < CYCLES_PER_FRAME {
+            self.cycles = self.cycles.saturating_add(self.cpu.run_next_instruction());
+            instructions += 1;
+
+            if instructions > CYCLES_PER_FRAME * 2 {
+                eprintln!("frame_took_too_many_instructions: {}", instructions);
+                break;
+            }
         }
 
         if let Some(renderer) = &mut self.renderer {
@@ -91,7 +101,7 @@ fn main() {
 
     let event_loop = EventLoop::new().expect("failed_to_create_event_loop");
     let mut app = App {
-        cpu, renderer: None
+        cpu, renderer: None, cycles: 0
     };
 
     event_loop.run_app(&mut app).expect("failed_to_run_event_loop");
