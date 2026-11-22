@@ -4,6 +4,7 @@ use crate::{
 };
 use exception::Exception;
 use instruction::Instruction;
+use icache::ICacheLine;
 
 mod decode;
 mod exception;
@@ -32,6 +33,7 @@ pub struct Cpu {
     epc: u32,
     branch: bool,
     delay_slot: bool,
+    icache: [ICacheLine; 256],
 }
 
 impl Cpu {
@@ -56,6 +58,7 @@ impl Cpu {
             epc: 0,
             branch: false,
             delay_slot: false,
+            icache: [ICacheLine::new(); 256],
         }
     }
 
@@ -113,14 +116,40 @@ impl Cpu {
 
     fn store<T: Addressable>(&mut self, addr: u32, val: T) {
         if self.sr & 0x10000 != 0 {
-            println!("ignoring_store_while_cache_is_isolated");
+            let abs_addr = addr & 0x1fffffff;
+            if abs_addr < 0x1000 {
+                let index = ((abs_addr >> 4) & 0xff) as usize;
+                self.icache[index].write_tag(abs_addr, val.as_u32());
+            }
             return;
         }
         self.inter.store(addr, val)
     }
 
-    fn fetch_instruction(&self, addr: u32) -> Instruction {
-        decode(Instruction::new(self.inter.load(addr)))
+    fn fetch_instruction(&mut self, addr: u32) -> Instruction {
+        if addr & 0xe0000000 != 0x80000000 {
+            return decode(Instruction::new(self.inter.load(addr)));
+        }
+
+        let line_index = ((addr >> 4) & 0xff) as usize;
+        let word_index = (addr >> 2) & 3;
+        let tag = addr & 0xfffff000;
+        let line = &mut self.icache[line_index];
+
+        if line.tag() == tag && line.valid(word_index) {
+            return line.instruction(word_index);
+        }
+
+        line.set_tag_valid(tag);
+
+        let base = addr & !0xf;
+        for i in word_index..4 {
+            let raw = self.inter.load(base + (i << 2));
+            line.set_instruction(i, decode(Instruction::new(raw)));
+            line.set_valid(i);
+        }
+
+        line.instruction(word_index)
     }
 
     fn read_word(&self, addr: u32) -> u32 {
