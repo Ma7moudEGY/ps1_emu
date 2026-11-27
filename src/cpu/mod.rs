@@ -123,7 +123,7 @@ impl Cpu {
         self.next_pc = pc;
     }
 
-    fn load<T: Addressable>(&self, addr: u32) -> T {
+    fn load<T: Addressable>(&mut self, addr: u32) -> T {
         self.inter.load(addr)
     }
 
@@ -170,7 +170,7 @@ impl Cpu {
         (line.instruction(word_index), cycles)
     }
 
-    fn read_word(&self, addr: u32) -> u32 {
+    fn read_word(&mut self, addr: u32) -> u32 {
         self.inter.load(addr)
     }
 

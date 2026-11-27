@@ -38,7 +38,7 @@ impl Interconnect {
         }
     }
 
-    pub fn load<T: Addressable>(&self, addr: u32) -> T {
+    pub fn load<T: Addressable>(&mut self, addr: u32) -> T {
         let abs_addr = map::mask_region(addr);
 
         if let Some(offset) = map::RAM.contains(abs_addr) {

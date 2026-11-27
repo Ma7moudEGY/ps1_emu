@@ -112,13 +112,7 @@ impl Gpu {
     }
 
     pub fn render(&mut self, renderer: &mut Renderer) {
-        for i in 0..self.pending_draws.len() {
-            let draw = self.pending_draws[i];
-            match draw {
-                PendingDraw::Triangle(tri) => self.rasterize_triangle(&tri),
-                PendingDraw::Rect(rect) => self.rasterize_rect(rect),
-            }
-        }
+        self.flush();
 
         renderer.display_vram(
             &self.vram,
@@ -182,6 +176,8 @@ impl Gpu {
                 0x2c => (9, Gpu::gp0_quad_texture_blend_opaque as fn(&mut Gpu)),
                 0x30 => (6, Gpu::gp0_triangle_shaded_opaque as fn(&mut Gpu)),
                 0x38 => (8, Gpu::gp0_quad_shaded_opaque as fn(&mut Gpu)),
+                0x40 => (3, Gpu::gp0_line_flat as fn(&mut Gpu)),
+                0x50 => (4, Gpu::gp0_line_gouraud as fn(&mut Gpu)),
                 0x60 => (3, Gpu::gp0_rectangle as fn(&mut Gpu)),
                 0x68 => (2, Gpu::gp0_rectangle as fn(&mut Gpu)),
                 0x70 => (2, Gpu::gp0_rectangle as fn(&mut Gpu)),
@@ -331,6 +327,7 @@ impl Gpu {
     }
 
     fn gp0_image_load(&mut self) {
+        self.flush();
         let pos = self.gp0_command[1];
         let size = self.gp0_command[2];
 
@@ -340,6 +337,7 @@ impl Gpu {
     }
 
     fn gp0_image_store(&mut self) {
+        self.flush();
         let pos = self.gp0_command[1];
         let size = self.gp0_command[2];
 
@@ -442,6 +440,7 @@ impl Gpu {
     }
 
     fn gp0_fill(&mut self) {
+        self.flush();
         let color = self.gp0_command[0];
         let color = (((color >> 3) & 0x1f)
             | (((color >> 11) & 0x1f) << 5)
@@ -516,6 +515,98 @@ impl Gpu {
                     continue;
                 }
                 self.vram[i] = rect.color;
+            }
+        }
+    }
+
+    fn gp0_line_flat(&mut self) {
+        let color = Color::from_gp0(self.gp0_command[0]);
+
+        let pos0 = Position::from_gp0(self.gp0_command[1]);
+        let pos0 = self.apply_draw_offset(pos0);
+
+        let pos1 = Position::from_gp0(self.gp0_command[2]);
+        let pos1 = self.apply_draw_offset(pos1);
+
+        self.pending_draws.push(PendingDraw::Line(Line {
+            x0: pos0.x as i32,
+            y0: pos0.y as i32,
+            x1: pos1.x as i32,
+            y1: pos1.y as i32,
+            colors: [color, color],
+        }));
+    }
+
+    fn gp0_line_gouraud(&mut self) {
+        let color0 = Color::from_gp0(self.gp0_command[0]);
+
+        let pos0 = Position::from_gp0(self.gp0_command[1]);
+        let pos0 = self.apply_draw_offset(pos0);
+
+        let color1 = Color::from_gp0(self.gp0_command[2]);
+
+        let pos1 = Position::from_gp0(self.gp0_command[3]);
+        let pos1 = self.apply_draw_offset(pos1);
+
+
+        self.pending_draws.push(PendingDraw::Line(Line {
+            x0: pos0.x as i32,
+            y0: pos0.y as i32,
+            x1: pos1.x as i32,
+            y1: pos1.y as i32,
+            colors: [color0, color1],
+        }));
+    }
+
+    fn rasterize_line(&mut self, line: Line) {
+        let dx = (line.x1 - line.x0).abs();
+        let dy = (line.y1 - line.y0).abs();
+        let steps = dx.max(dy);
+
+        let sx = if line.x0 < line.x1 { 1 } else { -1 };
+        let sy = if line.y0 < line.y1 { 1 } else { -1 };
+
+        let mut x = line.x0;
+        let mut y = line.y0;
+        let mut err = dx - dy;
+
+        for step in 0..=steps {
+            let denom = steps.max(1);
+            let t = step;
+
+            let r = (line.colors[0].r as i32 * (denom - t) + line.colors[1].r as i32 * t) / denom;
+            let g = (line.colors[0].g as i32 * (denom - t) + line.colors[1].g as i32 * t) / denom;
+            let b = (line.colors[0].b as i32 * (denom - t) + line.colors[1].b as i32 * t) / denom;
+
+            let color = (((r as u16) >> 3) & 0x1f)
+                | ((((g as u16) >> 3) & 0x1f) << 5)
+                | ((((b as u16) >> 3) & 0x1f) << 10);
+
+            let inside_vram = (0..1024).contains(&x) && (0..512).contains(&y);
+            let inside_area = x >= self.drawing_area_left as i32
+                && x <= self.drawing_area_right as i32
+                && y >= self.drawing_area_top as i32
+                && y <= self.drawing_area_bottom as i32;
+
+            if inside_vram && inside_area {
+                let i = self.vram_index(x as u16, y as u16);
+                if !self.preserve_masked_pixels || self.vram[i] & 0x8000 == 0 {
+                    self.vram[i] = color;
+                }
+            }
+
+            if x == line.x1 && y == line.y1 {
+                break;
+            }
+
+            let e2 = 2 * err;
+            if e2 > -dy {
+                err -= dy;
+                x += sx;
+            }
+            if e2 < dx {
+                err += dx;
+                y += sy;
             }
         }
     }
@@ -672,13 +763,16 @@ impl Gpu {
         lo | (hi << 16)
     }
 
-    pub fn load<T: Addressable>(&self, offset: u32) -> T {
+    pub fn load<T: Addressable>(&mut self, offset: u32) -> T {
         if T::width() != AccessWidth::Word {
             panic!("unhandled_{:?}_GPU_load", T::width());
         }
 
         let r = match offset {
-            0 => self.read(),
+            0 => {
+                self.flush();
+                self.read()
+            }
             4 => self.status(),
             _ => unreachable!(),
         };
@@ -843,6 +937,18 @@ impl Gpu {
             }
         }
     }
+
+    fn flush(&mut self) {
+        for i in 0..self.pending_draws.len() {
+            let draw = self.pending_draws[i];
+            match draw {
+                PendingDraw::Triangle(t) => self.rasterize_triangle(&t),
+                PendingDraw::Rect(r) => self.rasterize_rect(r),
+                PendingDraw::Line(l) => self.rasterize_line(l),
+            }
+        }
+        self.pending_draws.clear();
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -989,7 +1095,17 @@ struct Rect {
 }
 
 #[derive(Clone, Copy)]
+struct Line {
+    x0: i32,
+    y0: i32,
+    x1: i32,
+    y1: i32,
+    colors: [Color; 2],
+}
+
+#[derive(Clone, Copy)]
 enum PendingDraw {
     Triangle(Triangle),
     Rect(Rect),
+    Line(Line),
 }
