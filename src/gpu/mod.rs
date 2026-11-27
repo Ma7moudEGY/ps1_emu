@@ -172,10 +172,13 @@ impl Gpu {
                 0x00 => (1, Gpu::gp0_nop as fn(&mut Gpu)),
                 0x01 => (1, Gpu::gp0_clear_cache as fn(&mut Gpu)),
                 0x02 => (3, Gpu::gp0_fill as fn(&mut Gpu)),
+                0x24 => (7, Gpu::gp0_triangle_texture_blend_opaque as fn(&mut Gpu)),
                 0x28 => (5, Gpu::gp0_quad_mono_opaque as fn(&mut Gpu)),
                 0x2c => (9, Gpu::gp0_quad_texture_blend_opaque as fn(&mut Gpu)),
                 0x30 => (6, Gpu::gp0_triangle_shaded_opaque as fn(&mut Gpu)),
+                0x34 => (9, Gpu::gp0_gouraud_texture_triangle as fn(&mut Gpu)),
                 0x38 => (8, Gpu::gp0_quad_shaded_opaque as fn(&mut Gpu)),
+                0x3c => (12,Gpu::gp0_gouraud_texture_quad as fn(&mut Gpu)),
                 0x40 => (3, Gpu::gp0_line_flat as fn(&mut Gpu)),
                 0x50 => (4, Gpu::gp0_line_gouraud as fn(&mut Gpu)),
                 0x60 => (3, Gpu::gp0_rectangle as fn(&mut Gpu)),
@@ -404,13 +407,178 @@ impl Gpu {
         self.pending_draws.push(PendingDraw::Triangle(tri));
     }
 
+    fn gp0_gouraud_texture_quad(&mut self) {
+        let colors_1 = [
+            Color::from_gp0(self.gp0_command[0]),
+            Color::from_gp0(self.gp0_command[3]),
+            Color::from_gp0(self.gp0_command[6]),
+        ];
+
+        let colors_2 = [
+            Color::from_gp0(self.gp0_command[3]),
+            Color::from_gp0(self.gp0_command[6]),
+            Color::from_gp0(self.gp0_command[9]),
+        ];
+
+        let positions_1 = [
+            Position::from_gp0(self.gp0_command[1]),
+            Position::from_gp0(self.gp0_command[4]),
+            Position::from_gp0(self.gp0_command[7]),
+        ]
+        .map(|p| self.apply_draw_offset(p));
+
+        let positions_2 = [
+            Position::from_gp0(self.gp0_command[4]),
+            Position::from_gp0(self.gp0_command[7]),
+            Position::from_gp0(self.gp0_command[10]),
+        ]
+        .map(|p| self.apply_draw_offset(p));
+
+        let uvs_1 = [
+            Uv::from_gp0(self.gp0_command[2]),
+            Uv::from_gp0(self.gp0_command[5]),
+            Uv::from_gp0(self.gp0_command[8]),
+        ];
+
+        let uvs_2 = [
+            Uv::from_gp0(self.gp0_command[5]),
+            Uv::from_gp0(self.gp0_command[8]),
+            Uv::from_gp0(self.gp0_command[11]),
+        ];
+
+        let clut = self.gp0_command[2];
+        let page = self.gp0_command[5];
+        let raw = self.gp0_command[0] & (1 << 24) != 0;
+
+        let texture_attrs = self.texture_attr(clut, page, raw);
+
+        self.pending_draws.push(PendingDraw::TexturedTriangle( TexturedTriangle {
+            positions: positions_1,
+            colors: colors_1,
+            uvs: uvs_1,
+            texture: texture_attrs,
+        }));
+
+        self.pending_draws.push(PendingDraw::TexturedTriangle( TexturedTriangle {
+            positions: positions_2,
+            colors: colors_2,
+            uvs: uvs_2,
+            texture: texture_attrs,
+        }));
+    }
+
+    fn gp0_gouraud_texture_triangle(&mut self) {
+        let colors = [
+            Color::from_gp0(self.gp0_command[0]),
+            Color::from_gp0(self.gp0_command[3]),
+            Color::from_gp0(self.gp0_command[6]),
+        ];
+
+        let positions = [
+            Position::from_gp0(self.gp0_command[1]),
+            Position::from_gp0(self.gp0_command[4]),
+            Position::from_gp0(self.gp0_command[7]),
+        ]
+        .map(|p| self.apply_draw_offset(p));
+
+        let uvs = [
+            Uv::from_gp0(self.gp0_command[2]),
+            Uv::from_gp0(self.gp0_command[5]),
+            Uv::from_gp0(self.gp0_command[8]),
+        ];
+
+        let clut = self.gp0_command[2];
+        let page = self.gp0_command[5];
+        let raw = self.gp0_command[0] & (1 << 24) != 0;
+
+        let texture_attrs = self.texture_attr(clut, page, raw);
+
+        self.pending_draws
+            .push(PendingDraw::TexturedTriangle(TexturedTriangle {
+                positions,
+                colors,
+                uvs,
+                texture: texture_attrs,
+            }));
+    }
+
+    fn gp0_triangle_texture_blend_opaque(&mut self) {
+        let color = Color::from_gp0(self.gp0_command[0]);
+
+        let positions = [
+            Position::from_gp0(self.gp0_command[1]),
+            Position::from_gp0(self.gp0_command[3]),
+            Position::from_gp0(self.gp0_command[5]),
+        ]
+        .map(|p| self.apply_draw_offset(p));
+
+        let uvs = [
+            Uv::from_gp0(self.gp0_command[2]),
+            Uv::from_gp0(self.gp0_command[4]),
+            Uv::from_gp0(self.gp0_command[6]),
+        ];
+
+        let clut = self.gp0_command[2];
+        let page = self.gp0_command[4];
+        let raw = self.gp0_command[0] & (1 << 24) != 0;
+
+        let texture_attrs = self.texture_attr(clut, page, raw);
+
+        self.pending_draws
+            .push(PendingDraw::TexturedTriangle(TexturedTriangle {
+                positions,
+                colors: [color; 3],
+                uvs,
+                texture: texture_attrs,
+            }));
+    }
+
+    fn texture_attr(&self, clut: u32, page: u32, raw: bool) -> TextureAttributes {
+        let clut = clut >> 16;
+        let clut_x = (clut & 0x3f) * 16;
+        let clut_y = (clut >> 6) & 0x1ff;
+
+        let page = page >> 16;
+        let page_x = (page & 0xf) * 64;
+        let page_y = ((page >> 4) & 1) * 256;
+
+        let depth = (page >> 7) & 3;
+        let depth = match depth {
+            0 => TextureDepth::T4Bit,
+            1 => TextureDepth::T8Bit,
+            2 | 3 => TextureDepth::T15Bit,
+            n => todo!("unhandled_texture_depth_{}", n),
+        };
+
+        TextureAttributes {
+            page_x: page_x as u16,
+            page_y: page_y as u16,
+            clut_x: clut_x as u16,
+            clut_y: clut_y as u16,
+            depth,
+            raw,
+        }
+    }
+
     fn gp0_quad_texture_blend_opaque(&mut self) {
+        let clut = self.gp0_command[2];
+        let page = self.gp0_command[4];
+        let raw = self.gp0_command[0] & (1 << 24) != 0;
+
+        let texture_attrs = self.texture_attr(clut, page, raw);
+
         let positions_1 = [
             Position::from_gp0(self.gp0_command[1]),
             Position::from_gp0(self.gp0_command[3]),
             Position::from_gp0(self.gp0_command[5]),
         ]
         .map(|p| self.apply_draw_offset(p));
+
+        let uvs_1 = [
+            Uv::from_gp0(self.gp0_command[2]),
+            Uv::from_gp0(self.gp0_command[4]),
+            Uv::from_gp0(self.gp0_command[6]),
+        ];
 
         let positions_2 = [
             Position::from_gp0(self.gp0_command[3]),
@@ -419,24 +587,171 @@ impl Gpu {
         ]
         .map(|p| self.apply_draw_offset(p));
 
-        let colors = [Color {
-            r: 0x80,
-            g: 0x00,
-            b: 0x00,
-        }; 3];
+        let uvs_2 = [
+            Uv::from_gp0(self.gp0_command[4]),
+            Uv::from_gp0(self.gp0_command[6]),
+            Uv::from_gp0(self.gp0_command[8]),
+        ];
 
-        let tri_1 = Triangle {
+        let color = Color::from_gp0(self.gp0_command[0]);
+
+        let tri_1 = TexturedTriangle {
             positions: positions_1,
-            colors,
+            uvs: uvs_1,
+            colors: [color; 3],
+            texture: texture_attrs,
         };
 
-        let tri_2 = Triangle {
+        let tri_2 = TexturedTriangle {
             positions: positions_2,
-            colors,
+            uvs: uvs_2,
+            colors: [color; 3],
+            texture: texture_attrs,
         };
 
-        self.pending_draws.push(PendingDraw::Triangle(tri_1));
-        self.pending_draws.push(PendingDraw::Triangle(tri_2));
+        self.pending_draws
+            .push(PendingDraw::TexturedTriangle(tri_1));
+        self.pending_draws
+            .push(PendingDraw::TexturedTriangle(tri_2));
+    }
+
+    fn fetch_texel(&self, u: u32, v: u32, tex: &TextureAttributes) -> u16 {
+        match tex.depth {
+            TextureDepth::T4Bit => {
+                let word =
+                    self.vram[self.vram_index(tex.page_x + (u / 4) as u16, tex.page_y + v as u16)];
+                let index = ((word >> ((u & 3) * 4)) & 0xf) as u16;
+                self.vram[self.vram_index(tex.clut_x + index, tex.clut_y)]
+            }
+            TextureDepth::T8Bit => {
+                let word =
+                    self.vram[self.vram_index(tex.page_x + (u / 2) as u16, tex.page_y + v as u16)];
+                let index = ((word >> ((u & 1) * 8)) & 0xff) as u16;
+                self.vram[self.vram_index(tex.clut_x + index, tex.clut_y)]
+            }
+            TextureDepth::T15Bit => {
+                self.vram[self.vram_index(tex.page_x + u as u16, tex.page_y + v as u16)]
+            }
+        }
+    }
+
+    fn rasterize_textured_triangle(&mut self, tri: &TexturedTriangle) {
+        let p = tri.positions.map(|v| (v.x as i32, v.y as i32));
+
+        let area = self.edge(p[0].0, p[0].1, p[1].0, p[1].1, p[2].0, p[2].1);
+        if area == 0 {
+            return;
+        }
+
+        let min_x = p
+            .iter()
+            .map(|v| v.0)
+            .min()
+            .unwrap()
+            .max(self.drawing_area_left as i32)
+            .max(0);
+        let max_x = p
+            .iter()
+            .map(|v| v.0)
+            .max()
+            .unwrap()
+            .min(self.drawing_area_right as i32)
+            .min(1023);
+        let min_y = p
+            .iter()
+            .map(|v| v.1)
+            .min()
+            .unwrap()
+            .max(self.drawing_area_top as i32)
+            .max(0);
+        let max_y = p
+            .iter()
+            .map(|v| v.1)
+            .max()
+            .unwrap()
+            .min(self.drawing_area_bottom as i32)
+            .min(511);
+
+        let x_mask = self.texture_window_x_mask as u32 * 8;
+        let y_mask = self.texture_window_y_mask as u32 * 8;
+        let x_offset = self.texture_window_x_offset as u32 * 8;
+        let y_offset = self.texture_window_y_offset as u32 * 8;
+
+        let u0 = tri.uvs[0].u as i64;
+        let u1 = tri.uvs[1].u as i64;
+        let u2 = tri.uvs[2].u as i64;
+        let v0 = tri.uvs[0].v as i64;
+        let v1 = tri.uvs[1].v as i64;
+        let v2 = tri.uvs[2].v as i64;
+
+        for y in min_y..=max_y {
+            for x in min_x..=max_x {
+                let w0 = self.edge(p[1].0, p[1].1, p[2].0, p[2].1, x, y);
+                let w1 = self.edge(p[2].0, p[2].1, p[0].0, p[0].1, x, y);
+                let w2 = self.edge(p[0].0, p[0].1, p[1].0, p[1].1, x, y);
+
+                let inside = if area > 0 {
+                    w0 >= 0 && w1 >= 0 && w2 >= 0
+                } else {
+                    w0 <= 0 && w1 <= 0 && w2 <= 0
+                };
+                if !inside {
+                    continue;
+                }
+
+                let mut u =
+                    ((u0 * w0 as i64 + u1 * w1 as i64 + u2 * w2 as i64) / area as i64) as u32;
+                let mut v =
+                    ((v0 * w0 as i64 + v1 * w1 as i64 + v2 * w2 as i64) / area as i64) as u32;
+
+                u &= 0xff;
+                v &= 0xff;
+                u = (u & !x_mask) | (x_offset & x_mask);
+                v = (v & !y_mask) | (y_offset & y_mask);
+
+                let texel = self.fetch_texel(u, v, &tri.texture);
+                if texel == 0 {
+                    continue;
+                }
+
+                let tr = (texel & 0x1f) as i64;
+                let tg = ((texel >> 5) & 0x1f) as i64;
+                let tb = ((texel >> 10) & 0x1f) as i64;
+
+                let mut r = (tr << 3) | (tr >> 2);
+                let mut g = (tg << 3) | (tg >> 2);
+                let mut b = (tb << 3) | (tb >> 2);
+
+                if !tri.texture.raw {
+                    let vr = (tri.colors[0].r as i64 * w0 as i64
+                        + tri.colors[1].r as i64 * w1 as i64
+                        + tri.colors[2].r as i64 * w2 as i64)
+                        / area as i64;
+                    let vg = (tri.colors[0].g as i64 * w0 as i64
+                        + tri.colors[1].g as i64 * w1 as i64
+                        + tri.colors[2].g as i64 * w2 as i64)
+                        / area as i64;
+                    let vb = (tri.colors[0].b as i64 * w0 as i64
+                        + tri.colors[1].b as i64 * w1 as i64
+                        + tri.colors[2].b as i64 * w2 as i64)
+                        / area as i64;
+
+                    r = (r * vr / 128).clamp(0, 255);
+                    g = (g * vg / 128).clamp(0, 255);
+                    b = (b * vb / 128).clamp(0, 255);
+                }
+
+                let color = ((r as u16 >> 3) & 0x1f)
+                    | (((g as u16 >> 3) & 0x1f) << 5)
+                    | (((b as u16 >> 3) & 0x1f) << 10);
+
+                let i = self.vram_index(x as u16, y as u16);
+                if self.preserve_masked_pixels && self.vram[i] & 0x8000 != 0 {
+                    continue;
+                }
+                self.vram[i] = color;
+            }
+        }
     }
 
     fn gp0_fill(&mut self) {
@@ -547,7 +862,6 @@ impl Gpu {
 
         let pos1 = Position::from_gp0(self.gp0_command[3]);
         let pos1 = self.apply_draw_offset(pos1);
-
 
         self.pending_draws.push(PendingDraw::Line(Line {
             x0: pos0.x as i32,
@@ -945,6 +1259,7 @@ impl Gpu {
                 PendingDraw::Triangle(t) => self.rasterize_triangle(&t),
                 PendingDraw::Rect(r) => self.rasterize_rect(r),
                 PendingDraw::Line(l) => self.rasterize_line(l),
+                PendingDraw::TexturedTriangle(tt) => self.rasterize_textured_triangle(&tt),
             }
         }
         self.pending_draws.clear();
@@ -1108,4 +1423,38 @@ enum PendingDraw {
     Triangle(Triangle),
     Rect(Rect),
     Line(Line),
+    TexturedTriangle(TexturedTriangle),
+}
+
+#[derive(Clone, Copy)]
+struct Uv {
+    u: u8,
+    v: u8,
+}
+
+impl Uv {
+    pub fn from_gp0(val: u32) -> Uv {
+        let u = (val & 0xff) as u8;
+        let v = ((val >> 8) & 0xff) as u8;
+
+        Uv { u, v }
+    }
+}
+
+#[derive(Clone, Copy)]
+struct TextureAttributes {
+    page_x: u16,
+    page_y: u16,
+    clut_x: u16,
+    clut_y: u16,
+    depth: TextureDepth,
+    raw: bool,
+}
+
+#[derive(Clone, Copy)]
+struct TexturedTriangle {
+    positions: [Position; 3],
+    colors: [Color; 3],
+    uvs: [Uv; 3],
+    texture: TextureAttributes,
 }
