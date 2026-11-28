@@ -173,12 +173,16 @@ impl Gpu {
                 0x01 => (1, Gpu::gp0_clear_cache as fn(&mut Gpu)),
                 0x02 => (3, Gpu::gp0_fill as fn(&mut Gpu)),
                 0x24 => (7, Gpu::gp0_triangle_texture_blend_opaque as fn(&mut Gpu)),
+                0x26 => (7, Gpu::gp0_triangle_texture_blend_opaque as fn(&mut Gpu)),
                 0x28 => (5, Gpu::gp0_quad_mono_opaque as fn(&mut Gpu)),
                 0x2c => (9, Gpu::gp0_quad_texture_blend_opaque as fn(&mut Gpu)),
+                0x2e => (9, Gpu::gp0_quad_texture_blend_opaque as fn(&mut Gpu)),
                 0x30 => (6, Gpu::gp0_triangle_shaded_opaque as fn(&mut Gpu)),
                 0x34 => (9, Gpu::gp0_gouraud_texture_triangle as fn(&mut Gpu)),
+                0x36 => (9, Gpu::gp0_gouraud_texture_triangle as fn(&mut Gpu)),
                 0x38 => (8, Gpu::gp0_quad_shaded_opaque as fn(&mut Gpu)),
-                0x3c => (12,Gpu::gp0_gouraud_texture_quad as fn(&mut Gpu)),
+                0x3c => (12, Gpu::gp0_gouraud_texture_quad as fn(&mut Gpu)),
+                0x3e => (12, Gpu::gp0_gouraud_texture_quad as fn(&mut Gpu)),
                 0x40 => (3, Gpu::gp0_line_flat as fn(&mut Gpu)),
                 0x50 => (4, Gpu::gp0_line_gouraud as fn(&mut Gpu)),
                 0x60 => (3, Gpu::gp0_rectangle as fn(&mut Gpu)),
@@ -408,6 +412,8 @@ impl Gpu {
     }
 
     fn gp0_gouraud_texture_quad(&mut self) {
+        let semi_transparent = self.gp0_command[0] & (1 << 25) != 0;
+
         let colors_1 = [
             Color::from_gp0(self.gp0_command[0]),
             Color::from_gp0(self.gp0_command[3]),
@@ -452,22 +458,28 @@ impl Gpu {
 
         let texture_attrs = self.texture_attr(clut, page, raw);
 
-        self.pending_draws.push(PendingDraw::TexturedTriangle( TexturedTriangle {
-            positions: positions_1,
-            colors: colors_1,
-            uvs: uvs_1,
-            texture: texture_attrs,
-        }));
+        self.pending_draws
+            .push(PendingDraw::TexturedTriangle(TexturedTriangle {
+                positions: positions_1,
+                colors: colors_1,
+                uvs: uvs_1,
+                texture: texture_attrs,
+                semi_transparent,
+            }));
 
-        self.pending_draws.push(PendingDraw::TexturedTriangle( TexturedTriangle {
-            positions: positions_2,
-            colors: colors_2,
-            uvs: uvs_2,
-            texture: texture_attrs,
-        }));
+        self.pending_draws
+            .push(PendingDraw::TexturedTriangle(TexturedTriangle {
+                positions: positions_2,
+                colors: colors_2,
+                uvs: uvs_2,
+                texture: texture_attrs,
+                semi_transparent,
+            }));
     }
 
     fn gp0_gouraud_texture_triangle(&mut self) {
+        let semi_transparent = self.gp0_command[0] & (1 << 25) != 0;
+
         let colors = [
             Color::from_gp0(self.gp0_command[0]),
             Color::from_gp0(self.gp0_command[3]),
@@ -499,10 +511,13 @@ impl Gpu {
                 colors,
                 uvs,
                 texture: texture_attrs,
+                semi_transparent,
             }));
     }
 
     fn gp0_triangle_texture_blend_opaque(&mut self) {
+        let semi_transparent = self.gp0_command[0] & (1 << 25) != 0;
+
         let color = Color::from_gp0(self.gp0_command[0]);
 
         let positions = [
@@ -530,6 +545,7 @@ impl Gpu {
                 colors: [color; 3],
                 uvs,
                 texture: texture_attrs,
+                semi_transparent,
             }));
     }
 
@@ -550,6 +566,8 @@ impl Gpu {
             n => todo!("unhandled_texture_depth_{}", n),
         };
 
+        let abr = ((page >> 5) & 3) as u8;
+
         TextureAttributes {
             page_x: page_x as u16,
             page_y: page_y as u16,
@@ -557,10 +575,13 @@ impl Gpu {
             clut_y: clut_y as u16,
             depth,
             raw,
+            abr,
         }
     }
 
     fn gp0_quad_texture_blend_opaque(&mut self) {
+        let semi_transparent = self.gp0_command[0] & (1 << 25) != 0;
+
         let clut = self.gp0_command[2];
         let page = self.gp0_command[4];
         let raw = self.gp0_command[0] & (1 << 24) != 0;
@@ -600,6 +621,7 @@ impl Gpu {
             uvs: uvs_1,
             colors: [color; 3],
             texture: texture_attrs,
+            semi_transparent,
         };
 
         let tri_2 = TexturedTriangle {
@@ -607,6 +629,7 @@ impl Gpu {
             uvs: uvs_2,
             colors: [color; 3],
             texture: texture_attrs,
+            semi_transparent,
         };
 
         self.pending_draws
@@ -684,6 +707,8 @@ impl Gpu {
         let v1 = tri.uvs[1].v as i64;
         let v2 = tri.uvs[2].v as i64;
 
+        let abr = tri.texture.abr;
+
         for y in min_y..=max_y {
             for x in min_x..=max_x {
                 let w0 = self.edge(p[1].0, p[1].1, p[2].0, p[2].1, x, y);
@@ -741,15 +766,44 @@ impl Gpu {
                     b = (b * vb / 128).clamp(0, 255);
                 }
 
-                let color = ((r as u16 >> 3) & 0x1f)
+                let mut color = ((r as u16 >> 3) & 0x1f)
                     | (((g as u16 >> 3) & 0x1f) << 5)
                     | (((b as u16 >> 3) & 0x1f) << 10);
 
                 let i = self.vram_index(x as u16, y as u16);
+
                 if self.preserve_masked_pixels && self.vram[i] & 0x8000 != 0 {
                     continue;
                 }
-                self.vram[i] = color;
+
+                if tri.semi_transparent && texel & 0x8000 != 0 {
+                    let dst = self.vram[i];
+                    let br = dst & 0x1f;
+                    let bg = (dst >> 5) & 0x1f;
+                    let bb = (dst >> 10) & 0x1f;
+                    let fr = color & 0x1f;
+                    let fg = (color >> 5) & 0x1f;
+                    let fb = (color >> 10) & 0x1f;
+
+                    let blend = |back: u16, front: u16| -> u16 {
+                        match abr {
+                            0 => (back + front) / 2,
+                            1 => (back + front).min(31),
+                            2 => back.saturating_sub(front),
+                            _ => (back + front / 4).min(31),
+                        }
+                    };
+
+                    color = blend(br, fr) | (blend(bg, fg) << 5) | (blend(bb, fb) << 10);
+                }
+
+                let mask = if self.force_set_mask_bit {
+                    0x8000
+                } else {
+                    texel & 0x8000
+                };
+
+                self.vram[i] = (color & 0x7fff) | mask;
             }
         }
     }
@@ -1449,6 +1503,7 @@ struct TextureAttributes {
     clut_y: u16,
     depth: TextureDepth,
     raw: bool,
+    abr: u8,
 }
 
 #[derive(Clone, Copy)]
@@ -1457,4 +1512,5 @@ struct TexturedTriangle {
     colors: [Color; 3],
     uvs: [Uv; 3],
     texture: TextureAttributes,
+    semi_transparent: bool,
 }
